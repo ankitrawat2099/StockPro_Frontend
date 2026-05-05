@@ -1,7 +1,6 @@
 export const TOKEN_KEY = "stockpro_token";
 
 export const ROLES = ["ADMIN", "MANAGER", "OFFICER", "STAFF"];
-export const PUBLIC_SIGNUP_ROLES = ["STAFF", "MANAGER", "OFFICER"];
 
 export const ROLE_LABELS = {
   ADMIN: "Administrator",

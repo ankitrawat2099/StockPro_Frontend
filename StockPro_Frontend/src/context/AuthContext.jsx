@@ -1,15 +1,12 @@
 import axios from "axios";
 import { createContext, useContext, useEffect, useState } from "react";
 import { clearPersistentStore } from "../hooks/usePersistentState";
-import { API_ROUTES, PUBLIC_SIGNUP_ROLES} from "../lib/constants";
+import { API_ROUTES } from "../lib/constants";
 import { clearStoredToken, getStoredToken, setStoredToken } from "../lib/storage";
 import { extractApiMessage } from "../lib/utils";
 
 export const AuthContext = createContext(null);
 
-const sanitizePublicRole = (role) => {
-  return PUBLIC_SIGNUP_ROLES.includes(role) ? role : "STAFF";
-};
 
 export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(getStoredToken());
@@ -47,20 +44,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (payload) => {
-    try {
-      const request = {
-        ...payload,
-        role: sanitizePublicRole(payload.role),
-      };
-
-      return await axios.post(API_ROUTES.auth.register, request, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch (error) {
-      throw new Error(extractApiMessage(error));
-    }
-  };
 
   const createUser = async (payload) => {
     try {
@@ -155,7 +138,6 @@ export const AuthProvider = ({ children }) => {
         booting,
         isAuthenticated: Boolean(token),
         login,
-        register,
         createUser,
         updateProfile,
         changePassword,

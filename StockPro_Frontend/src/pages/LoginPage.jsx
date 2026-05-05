@@ -35,12 +35,6 @@ const LoginPage = () => {
             Welcome back
           </p>
           <h2 className="mt-3 text-4xl">Login</h2>
-          <p className="mt-2 text-sm text-ink-600">
-            New to StockPro?{" "}
-            <Link className="font-semibold text-coral" to="/signup">
-              Create an account
-            </Link>
-          </p>
 
           <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
             <div>
