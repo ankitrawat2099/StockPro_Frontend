@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import axios from "axios";
 
 import DataTable from "../components/DataTable";
-import FloatingNotice from "../components/FloatingNotice";
+import { toast } from "react-toastify";
 import PageHeader from "../components/PageHeader";
-import { useAuth } from "../context/AuthContext";
-import { useNotice } from "../hooks/useNotice";
+import { AuthContext } from "../context/AuthContext";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { API_ROUTES } from "../lib/constants";
 import {
@@ -49,11 +48,13 @@ const ORDER_LOAD_OPTIONS = [
   { value: "dateRange", label: "Date range" },
 ];
 
-export default function PurchaseOrdersPage() {
-  const { user, token } = useAuth();
+const PurchaseOrdersPage = () => {
+  const { user, token } = useContext(AuthContext);
   const [orders, setOrders] = useState([]);
-  const [activeLoadMode, setActiveLoadMode] = usePersistentState("draft:purchaseOrders:activeLoadMode", "status");
-  const [resultLabel, setResultLabel] = useState("No purchase order query has been run yet.");
+  const [local, setLocal] = usePersistentState("draft:purchaseOrders:local", {
+    activeLoadMode: "status",
+    resultLabel: "No purchase order query has been run yet.",
+  });
   const [filters, setFilters] = usePersistentState("draft:purchaseOrders:filters", {
     id: "",
     status: "APPROVED",
@@ -62,69 +63,90 @@ export default function PurchaseOrdersPage() {
     start: "",
     end: "",
   });
-  const [orderForm, setOrderForm, clearOrderForm] = usePersistentState("draft:purchaseOrders:createForm", orderInitial);
-  const [editForm, setEditForm, clearEditForm] = usePersistentState("draft:purchaseOrders:editForm", editInitial);
-  const [receiveForm, setReceiveForm, clearReceiveForm] = usePersistentState("draft:purchaseOrders:receiveForm", receiveInitial);
+  const [orderForm, setOrderForm, clearOrderForm] = usePersistentState(
+    "draft:purchaseOrders:createForm",
+    orderInitial
+  );
+  const [editForm, setEditForm, clearEditForm] = usePersistentState(
+    "draft:purchaseOrders:editForm",
+    editInitial
+  );
+  const [receiveForm, setReceiveForm, clearReceiveForm] = usePersistentState(
+    "draft:purchaseOrders:receiveForm",
+    receiveInitial
+  );
   const [view, setView] = useState("list"); // "list" or "receive" or "create"
-  const { message, error, setNotice } = useNotice();
 
   const canCreate = user?.role === "OFFICER";
   const canApprove = ["OFFICER", "MANAGER"].includes(user?.role);
   const canReceive = user?.role?.toUpperCase() === "STAFF";
   const canBrowse = ["ADMIN", "MANAGER", "OFFICER", "STAFF"].includes(user?.role?.toUpperCase());
-  const currentLoadMode = activeLoadMode || "status";
+  const currentLoadMode = local.activeLoadMode || "status";
 
-  // Auto-load orders on mount using the current default mode (usually Status = APPROVED)
   useEffect(() => {
     if (canBrowse) {
       handleLoadOrders(false);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function runLoader(promiseFactory, successMessage = "Purchase orders loaded.", mode = "", label = "", showNotice = true) {
-    if (showNotice) setNotice();
+  const handleChange = (e, setter) => {
+    const { type } = e.target;
+    const finalValue = type === "number" ? Number(e.target.value) : e.target.value;
+    setter((current) => ({ ...current, [e.target.name]: finalValue }));
+  };
 
+  const runLoader = async (
+    promiseFactory,
+    successMessage = "Purchase orders loaded.",
+    mode = "",
+    label = "",
+    showNotice = true
+  ) => {
     try {
       const response = await promiseFactory();
       const payload = response.data;
       const rows = Array.isArray(payload) ? payload : payload ? [payload] : [];
       setOrders(rows);
-      setActiveLoadMode(mode);
-      setResultLabel(label ? `${label} (${rows.length} result${rows.length === 1 ? "" : "s"})` : `${rows.length} result${rows.length === 1 ? "" : "s"} loaded.`);
-      if (showNotice) setNotice(successMessage);
+      setLocal((c) => ({
+        ...c,
+        activeLoadMode: mode,
+        resultLabel: label
+          ? `${label} (${rows.length} result${rows.length === 1 ? "" : "s"})`
+          : `${rows.length} result${rows.length === 1 ? "" : "s"} loaded.`,
+      }));
+      if (showNotice) toast.success(successMessage);
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  function updateItem(index, key, value) {
+  const updateItem = (index, key, value) => {
     setOrderForm((current) => ({
       ...current,
       items: current.items.map((item, itemIndex) =>
         itemIndex === index ? { ...item, [key]: value } : item
       ),
     }));
-  }
+  };
 
-  function updateReceiveItem(index, key, value) {
+  const updateReceiveItem = (index, key, value) => {
     setReceiveForm((current) => ({
       ...current,
       items: current.items.map((item, itemIndex) =>
         itemIndex === index ? { ...item, [key]: value } : item
       ),
     }));
-  }
+  };
 
-  function requirePositiveInteger(value, label) {
+  const requirePositiveInteger = (value, label) => {
     if (!isPositiveInteger(value)) {
-      setNotice("", `Enter a valid numeric ${label}.`);
+      toast.error(`Enter a valid numeric ${label}.`);
       return false;
     }
-
     return true;
-  }
+  };
 
-  function handleLoadOrders(showNotice = true) {
+  const handleLoadOrders = (showNotice = true) => {
     switch (currentLoadMode) {
       case "id":
         if (!requirePositiveInteger(filters.id, "purchase order ID")) {
@@ -132,7 +154,10 @@ export default function PurchaseOrdersPage() {
         }
 
         runLoader(
-          () => axios.get(API_ROUTES.purchaseOrders.byId(filters.id), { headers: { Authorization: `Bearer ${token}` } }),
+          () =>
+            axios.get(API_ROUTES.purchaseOrders.byId(filters.id), {
+              headers: { Authorization: `Bearer ${token}` },
+            }),
           "Purchase order loaded.",
           "id",
           `Purchase order #${filters.id}`,
@@ -141,7 +166,10 @@ export default function PurchaseOrdersPage() {
         return;
       case "status":
         runLoader(
-          () => axios.get(API_ROUTES.purchaseOrders.byStatus(filters.status), { headers: { Authorization: `Bearer ${token}` } }),
+          () =>
+            axios.get(API_ROUTES.purchaseOrders.byStatus(filters.status), {
+              headers: { Authorization: `Bearer ${token}` },
+            }),
           "Purchase orders filtered by status.",
           "status",
           `Status: ${filters.status}`,
@@ -154,7 +182,10 @@ export default function PurchaseOrdersPage() {
         }
 
         runLoader(
-          () => axios.get(API_ROUTES.purchaseOrders.bySupplier(filters.supplierId), { headers: { Authorization: `Bearer ${token}` } }),
+          () =>
+            axios.get(API_ROUTES.purchaseOrders.bySupplier(filters.supplierId), {
+              headers: { Authorization: `Bearer ${token}` },
+            }),
           "Purchase orders filtered by supplier.",
           "supplier",
           `Supplier ID: ${filters.supplierId}`,
@@ -167,7 +198,10 @@ export default function PurchaseOrdersPage() {
         }
 
         runLoader(
-          () => axios.get(API_ROUTES.purchaseOrders.byWarehouse(filters.warehouseId), { headers: { Authorization: `Bearer ${token}` } }),
+          () =>
+            axios.get(API_ROUTES.purchaseOrders.byWarehouse(filters.warehouseId), {
+              headers: { Authorization: `Bearer ${token}` },
+            }),
           "Purchase orders filtered by warehouse.",
           "warehouse",
           `Warehouse ID: ${filters.warehouseId}`,
@@ -176,12 +210,16 @@ export default function PurchaseOrdersPage() {
         return;
       case "dateRange":
         if (!filters.start || !filters.end) {
-          if (showNotice) setNotice("", "Select both start and end dates before running a date range search.");
+          if (showNotice)
+            toast.error("Select both start and end dates before running a date range search.");
           return;
         }
 
         runLoader(
-          () => axios.get(API_ROUTES.purchaseOrders.byDateRange(filters.start, filters.end), { headers: { Authorization: `Bearer ${token}` } }),
+          () =>
+            axios.get(API_ROUTES.purchaseOrders.byDateRange(filters.start, filters.end), {
+              headers: { Authorization: `Bearer ${token}` },
+            }),
           "Purchase orders filtered by date range.",
           "dateRange",
           `Date range: ${filters.start} to ${filters.end}`,
@@ -189,13 +227,12 @@ export default function PurchaseOrdersPage() {
         );
         return;
       default:
-        setNotice("", "Choose how you want to load purchase orders.");
+        toast.error("Choose how you want to load purchase orders.");
     }
-  }
+  };
 
-  async function handleCreate(event) {
+  const handleCreate = async (event) => {
     event.preventDefault();
-    setNotice();
 
     try {
       if (!requirePositiveInteger(orderForm.supplierId, "supplier ID")) {
@@ -207,33 +244,36 @@ export default function PurchaseOrdersPage() {
       }
 
       if (orderForm.items.some((item) => !isGuid(item.productId))) {
-        setNotice("", "Each line item needs a valid product ID in GUID format.");
+        toast.error("Each line item needs a valid product ID in GUID format.");
         return;
       }
 
-      await axios.post(API_ROUTES.purchaseOrders.create, {
-        supplierId: Number(orderForm.supplierId),
-        warehouseId: Number(orderForm.warehouseId),
-        expectedDate: orderForm.expectedDate || null,
-        notes: orderForm.notes,
-        referenceNumber: orderForm.referenceNumber,
-        items: orderForm.items.map((item) => ({
-          productId: item.productId,
-          quantity: Number(item.quantity),
-          unitCost: Number(item.unitCost),
-        })),
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(
+        API_ROUTES.purchaseOrders.create,
+        {
+          supplierId: Number(orderForm.supplierId),
+          warehouseId: Number(orderForm.warehouseId),
+          expectedDate: orderForm.expectedDate || null,
+          notes: orderForm.notes,
+          referenceNumber: orderForm.referenceNumber,
+          items: orderForm.items.map((item) => ({
+            productId: item.productId,
+            quantity: Number(item.quantity),
+            unitCost: Number(item.unitCost),
+          })),
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-      setNotice("Purchase order created.");
+      toast.success("Purchase order created.");
       clearOrderForm();
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleUpdate(event) {
+  const handleUpdate = async (event) => {
     event.preventDefault();
-    setNotice();
 
     try {
       if (!requirePositiveInteger(editForm.poId, "purchase order ID")) {
@@ -248,59 +288,68 @@ export default function PurchaseOrdersPage() {
         return;
       }
 
-      await axios.put(API_ROUTES.purchaseOrders.update(editForm.poId), {
-        supplierId: Number(editForm.supplierId),
-        warehouseId: Number(editForm.warehouseId),
-        expectedDate: editForm.expectedDate || null,
-        notes: editForm.notes,
-        referenceNumber: editForm.referenceNumber,
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.put(
+        API_ROUTES.purchaseOrders.update(editForm.poId),
+        {
+          supplierId: Number(editForm.supplierId),
+          warehouseId: Number(editForm.warehouseId),
+          expectedDate: editForm.expectedDate || null,
+          notes: editForm.notes,
+          referenceNumber: editForm.referenceNumber,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-      setNotice("Purchase order updated.");
+      toast.success("Purchase order updated.");
       clearEditForm();
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleApprove(poId) {
-    setNotice();
-
+  const handleApprove = async (poId) => {
     try {
-      await axios.put(API_ROUTES.purchaseOrders.approve(poId), {}, { headers: { Authorization: `Bearer ${token}` } });
-      setNotice("Purchase order approved.");
+      await axios.put(
+        API_ROUTES.purchaseOrders.approve(poId),
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      toast.success("Purchase order approved.");
       handleLoadOrders(false);
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleSubmitForApproval(poId) {
-    setNotice();
-
+  const handleSubmitForApproval = async (poId) => {
     try {
-      await axios.put(API_ROUTES.purchaseOrders.submit(poId), {}, { headers: { Authorization: `Bearer ${token}` } });
-      setNotice("Purchase order submitted for approval.");
+      await axios.put(
+        API_ROUTES.purchaseOrders.submit(poId),
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      toast.success("Purchase order submitted for approval.");
       handleLoadOrders(false);
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleCancel(poId) {
-    setNotice();
-
+  const handleCancel = async (poId) => {
     try {
-      await axios.put(API_ROUTES.purchaseOrders.cancel(poId), {}, { headers: { Authorization: `Bearer ${token}` } });
-      setNotice("Purchase order cancelled.");
+      await axios.put(
+        API_ROUTES.purchaseOrders.cancel(poId),
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      toast.success("Purchase order cancelled.");
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleReceive(event) {
+  const handleReceive = async (event) => {
     event.preventDefault();
-    setNotice();
 
     try {
       if (!requirePositiveInteger(receiveForm.poId, "purchase order ID")) {
@@ -308,27 +357,31 @@ export default function PurchaseOrdersPage() {
       }
 
       if (receiveForm.items.some((item) => !isPositiveInteger(item.lineItemId))) {
-        setNotice("", "Each receipt line needs a valid numeric line item ID.");
+        toast.error("Each receipt line needs a valid numeric line item ID.");
         return;
       }
 
-      await axios.post(API_ROUTES.purchaseOrders.receive(receiveForm.poId), {
-        items: receiveForm.items.map((item) => ({
-          lineItemId: Number(item.lineItemId),
-          receivedQty: Number(item.receivedQty),
-        })),
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(
+        API_ROUTES.purchaseOrders.receive(receiveForm.poId),
+        {
+          items: receiveForm.items.map((item) => ({
+            lineItemId: Number(item.lineItemId),
+            receivedQty: Number(item.receivedQty),
+          })),
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-      setNotice("Goods receipt recorded.");
+      toast.success("Goods receipt recorded.");
       clearReceiveForm();
       setView("list");
       handleLoadOrders(false);
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  function loadIntoEdit(order) {
+  const loadIntoEdit = (order) => {
     setEditForm({
       poId: getValue(order, "poId", "PoId"),
       supplierId: getValue(order, "supplierId", "SupplierId"),
@@ -337,52 +390,60 @@ export default function PurchaseOrdersPage() {
       notes: getValue(order, "notes", "Notes") || "",
       referenceNumber: getValue(order, "referenceNumber", "ReferenceNumber") || "",
     });
-  }
+  };
 
-  function loadIntoReceive(order) {
+  const loadIntoReceive = (order) => {
     const poId = getValue(order, "poId", "PoId");
     const items = safeArray(getValue(order, "items", "Items")).map((item) => {
       const lineItemId = getValue(item, "lineItemId", "LineItemId");
       const productId = getValue(item, "productId", "ProductId");
       const quantity = getValue(item, "quantity", "Quantity");
       const receivedQty = getValue(item, "receivedQty", "ReceivedQty") || 0;
-      
-      return { 
-        lineItemId, 
-        productId, 
-        quantity, 
-        previouslyReceived: receivedQty, 
-        receivedQty: Math.max(0, quantity - receivedQty)
+
+      return {
+        lineItemId,
+        productId,
+        quantity,
+        previouslyReceived: receivedQty,
+        receivedQty: Math.max(0, quantity - receivedQty),
       };
     });
-    
+
     setReceiveForm({
       poId,
-      items
+      items,
     });
     setView("receive");
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   return (
     <div className="space-y-8">
       <PageHeader
         eyebrow="Purchase"
         title={view === "receive" ? "Receive Goods" : "Purchase orders"}
-        description={view === "receive" ? `PO #${receiveForm.poId} Receipt` : "Manage and track your purchase orders."}
+        description={
+          view === "receive"
+            ? `PO #${receiveForm.poId} Receipt`
+            : "Manage and track your purchase orders."
+        }
       />
-
-      <FloatingNotice error={error} message={message} />
 
       {view === "list" && canBrowse ? (
         <>
           <section className="panel-soft p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">Load Orders</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">
+              Load Orders
+            </p>
             <div className="mt-3 rounded-2xl bg-white px-4 py-3 text-sm text-ink-600">
-              <span className="font-semibold text-ink-900">Current view:</span> {resultLabel}
+              <span className="font-semibold text-ink-900">Current view:</span> {local.resultLabel}
             </div>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <select value={currentLoadMode} onChange={(event) => setActiveLoadMode(event.target.value)}>
+              <select
+                name="activeLoadMode"
+                value={currentLoadMode}
+                onChange={(e) => handleChange(e, setLocal)}
+              >
                 {ORDER_LOAD_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
@@ -392,47 +453,53 @@ export default function PurchaseOrdersPage() {
 
               {currentLoadMode === "id" ? (
                 <input
+                  name="id"
                   placeholder="PO ID"
                   value={filters.id}
-                  onChange={(event) => setFilters((current) => ({ ...current, id: event.target.value }))}
+                  onChange={(e) => handleChange(e, setFilters)}
                 />
               ) : null}
 
               {currentLoadMode === "status" ? (
                 <input
+                  name="status"
                   placeholder="Status"
                   value={filters.status}
-                  onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
+                  onChange={(e) => handleChange(e, setFilters)}
                 />
               ) : null}
 
               {currentLoadMode === "supplier" ? (
                 <input
+                  name="supplierId"
                   placeholder="Supplier ID"
                   value={filters.supplierId}
-                  onChange={(event) => setFilters((current) => ({ ...current, supplierId: event.target.value }))}
+                  onChange={(e) => handleChange(e, setFilters)}
                 />
               ) : null}
 
               {currentLoadMode === "warehouse" ? (
                 <input
+                  name="warehouseId"
                   placeholder="Warehouse ID"
                   value={filters.warehouseId}
-                  onChange={(event) => setFilters((current) => ({ ...current, warehouseId: event.target.value }))}
+                  onChange={(e) => handleChange(e, setFilters)}
                 />
               ) : null}
 
               {currentLoadMode === "dateRange" ? (
                 <>
                   <input
+                    name="start"
                     type="date"
                     value={filters.start}
-                    onChange={(event) => setFilters((current) => ({ ...current, start: event.target.value }))}
+                    onChange={(e) => handleChange(e, setFilters)}
                   />
                   <input
+                    name="end"
                     type="date"
                     value={filters.end}
-                    onChange={(event) => setFilters((current) => ({ ...current, end: event.target.value }))}
+                    onChange={(e) => handleChange(e, setFilters)}
                   />
                 </>
               ) : null}
@@ -459,15 +526,28 @@ export default function PurchaseOrdersPage() {
                 },
                 { label: "Supplier", render: (row) => getValue(row, "supplierId", "SupplierId") },
                 { label: "Warehouse", render: (row) => getValue(row, "warehouseId", "WarehouseId") },
-                { label: "Total", render: (row) => formatCurrency(getValue(row, "totalAmount", "TotalAmount")) },
-                { label: "Expected", render: (row) => formatDate(getValue(row, "expectedDate", "ExpectedDate")) },
+                {
+                  label: "Total",
+                  render: (row) => formatCurrency(getValue(row, "totalAmount", "TotalAmount")),
+                },
+                {
+                  label: "Expected",
+                  render: (row) => formatDate(getValue(row, "expectedDate", "ExpectedDate")),
+                },
                 {
                   label: "Items",
                   render: (row) => (
                     <div className="space-y-1 text-xs text-ink-500">
                       {safeArray(getValue(row, "items", "Items")).map((item) => (
-                        <p key={getValue(item, "lineItemId", "LineItemId") || getValue(item, "productId", "ProductId")}>
-                          {getValue(item, "productId", "ProductId")} &bull; {getValue(item, "receivedQty", "ReceivedQty") || 0} / {getValue(item, "quantity", "Quantity")}
+                        <p
+                          key={
+                            getValue(item, "lineItemId", "LineItemId") ||
+                            getValue(item, "productId", "ProductId")
+                          }
+                        >
+                          {getValue(item, "productId", "ProductId")} &bull;{" "}
+                          {getValue(item, "receivedQty", "ReceivedQty") || 0} /{" "}
+                          {getValue(item, "quantity", "Quantity")}
                         </p>
                       ))}
                     </div>
@@ -478,12 +558,16 @@ export default function PurchaseOrdersPage() {
                   render: (row) => {
                     const status = getValue(row, "status", "Status");
                     const poId = getValue(row, "poId", "PoId");
-                    
+
                     return (
                       <div className="flex flex-wrap gap-2">
                         {canCreate && status === "DRAFT" ? (
                           <>
-                            <button className="secondary-btn px-4 py-2" onClick={() => loadIntoEdit(row)} type="button">
+                            <button
+                              className="secondary-btn px-4 py-2"
+                              onClick={() => loadIntoEdit(row)}
+                              type="button"
+                            >
                               Edit
                             </button>
                             <button
@@ -495,7 +579,7 @@ export default function PurchaseOrdersPage() {
                             </button>
                           </>
                         ) : null}
-                        
+
                         {canCreate && status !== "RECEIVED" && status !== "CANCELLED" ? (
                           <button
                             className="danger-btn px-4 py-2"
@@ -516,7 +600,9 @@ export default function PurchaseOrdersPage() {
                           </button>
                         ) : null}
 
-                        {canReceive && (status?.toUpperCase() === "APPROVED" || status?.toUpperCase() === "PARTIALLY_RECEIVED") ? (
+                        {canReceive &&
+                        (status?.toUpperCase() === "APPROVED" ||
+                          status?.toUpperCase() === "PARTIALLY_RECEIVED") ? (
                           <button
                             className="secondary-btn px-4 py-2"
                             onClick={() => loadIntoReceive(row)}
@@ -544,60 +630,66 @@ export default function PurchaseOrdersPage() {
               <label className="block text-sm font-medium text-ink-700">
                 Supplier ID
                 <input
+                  name="supplierId"
                   className="mt-1 w-full"
                   placeholder="e.g. 1"
                   required
                   type="number"
                   value={orderForm.supplierId}
-                  onChange={(event) => setOrderForm((current) => ({ ...current, supplierId: event.target.value }))}
+                  onChange={(e) => handleChange(e, setOrderForm)}
                 />
               </label>
               <label className="block text-sm font-medium text-ink-700">
                 Warehouse ID
                 <input
+                  name="warehouseId"
                   className="mt-1 w-full"
                   placeholder="e.g. 2"
                   required
                   type="number"
                   value={orderForm.warehouseId}
-                  onChange={(event) => setOrderForm((current) => ({ ...current, warehouseId: event.target.value }))}
+                  onChange={(e) => handleChange(e, setOrderForm)}
                 />
               </label>
               <label className="block text-sm font-medium text-ink-700">
                 Expected Delivery Date
                 <input
+                  name="expectedDate"
                   className="mt-1 w-full"
                   type="date"
                   value={orderForm.expectedDate}
-                  onChange={(event) => setOrderForm((current) => ({ ...current, expectedDate: event.target.value }))}
+                  onChange={(e) => handleChange(e, setOrderForm)}
                 />
               </label>
               <label className="block text-sm font-medium text-ink-700">
                 Reference Number
                 <input
+                  name="referenceNumber"
                   className="mt-1 w-full"
                   placeholder="e.g. PO-2023-01"
                   value={orderForm.referenceNumber}
-                  onChange={(event) =>
-                    setOrderForm((current) => ({ ...current, referenceNumber: event.target.value }))
-                  }
+                  onChange={(e) => handleChange(e, setOrderForm)}
                 />
               </label>
               <label className="block text-sm font-medium text-ink-700 md:col-span-2">
                 Notes
                 <textarea
+                  name="notes"
                   className="mt-1 w-full"
                   placeholder="Additional instructions..."
-                rows={3}
+                  rows={3}
                   value={orderForm.notes}
-                  onChange={(event) => setOrderForm((current) => ({ ...current, notes: event.target.value }))}
+                  onChange={(e) => handleChange(e, setOrderForm)}
                 />
               </label>
             </div>
 
             <div className="mt-5 space-y-3">
               {orderForm.items.map((item, index) => (
-                <div key={`${item.productId}-${index}`} className="grid gap-3 rounded-3xl border border-ink-100 p-4 md:grid-cols-3">
+                <div
+                  key={`${item.productId}-${index}`}
+                  className="grid gap-3 rounded-3xl border border-ink-100 p-4 md:grid-cols-3"
+                >
                   <label className="block text-sm font-medium text-ink-700">
                     Product ID (GUID)
                     <input
@@ -605,7 +697,7 @@ export default function PurchaseOrdersPage() {
                       placeholder="Product GUID"
                       required
                       value={item.productId}
-                      onChange={(event) => updateItem(index, "productId", event.target.value)}
+                      onChange={(e) => updateItem(index, "productId", e.target.value)}
                     />
                   </label>
                   <label className="block text-sm font-medium text-ink-700">
@@ -616,7 +708,7 @@ export default function PurchaseOrdersPage() {
                       required
                       type="number"
                       value={item.quantity}
-                      onChange={(event) => updateItem(index, "quantity", Number(event.target.value))}
+                      onChange={(e) => updateItem(index, "quantity", Number(e.target.value))}
                     />
                   </label>
                   <label className="block text-sm font-medium text-ink-700">
@@ -627,7 +719,7 @@ export default function PurchaseOrdersPage() {
                       required
                       type="number"
                       value={item.unitCost}
-                      onChange={(event) => updateItem(index, "unitCost", Number(event.target.value))}
+                      onChange={(e) => updateItem(index, "unitCost", Number(e.target.value))}
                     />
                   </label>
                 </div>
@@ -659,45 +751,49 @@ export default function PurchaseOrdersPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">Update PO</p>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <input
+                name="poId"
                 placeholder="PO ID"
                 required
                 type="number"
                 value={editForm.poId}
-                onChange={(event) => setEditForm((current) => ({ ...current, poId: event.target.value }))}
+                onChange={(e) => handleChange(e, setEditForm)}
               />
               <input
+                name="supplierId"
                 placeholder="Supplier ID"
                 required
                 type="number"
                 value={editForm.supplierId}
-                onChange={(event) => setEditForm((current) => ({ ...current, supplierId: event.target.value }))}
+                onChange={(e) => handleChange(e, setEditForm)}
               />
               <input
+                name="warehouseId"
                 placeholder="Warehouse ID"
                 required
                 type="number"
                 value={editForm.warehouseId}
-                onChange={(event) => setEditForm((current) => ({ ...current, warehouseId: event.target.value }))}
+                onChange={(e) => handleChange(e, setEditForm)}
               />
               <input
+                name="expectedDate"
                 type="date"
                 value={editForm.expectedDate}
-                onChange={(event) => setEditForm((current) => ({ ...current, expectedDate: event.target.value }))}
+                onChange={(e) => handleChange(e, setEditForm)}
               />
               <input
+                name="referenceNumber"
                 className="md:col-span-2"
                 placeholder="Reference number"
                 value={editForm.referenceNumber}
-                onChange={(event) =>
-                  setEditForm((current) => ({ ...current, referenceNumber: event.target.value }))
-                }
+                onChange={(e) => handleChange(e, setEditForm)}
               />
               <textarea
+                name="notes"
                 className="md:col-span-2"
                 placeholder="Notes"
                 rows={3}
                 value={editForm.notes}
-                onChange={(event) => setEditForm((current) => ({ ...current, notes: event.target.value }))}
+                onChange={(e) => handleChange(e, setEditForm)}
               />
             </div>
 
@@ -712,12 +808,19 @@ export default function PurchaseOrdersPage() {
             <div className="panel-soft p-10">
               <div className="flex items-center justify-between mb-10 pb-6 border-b border-ink-100">
                 <div>
-                  <h3 className="text-3xl font-black tracking-tight text-ink-950">PO #{receiveForm.poId}</h3>
-                  <p className="text-xs font-bold uppercase tracking-widest text-ink-400 mt-1">Recording Goods Receipt</p>
+                  <h3 className="text-3xl font-black tracking-tight text-ink-950">
+                    PO #{receiveForm.poId}
+                  </h3>
+                  <p className="text-xs font-bold uppercase tracking-widest text-ink-400 mt-1">
+                    Recording Goods Receipt
+                  </p>
                 </div>
-                <button 
-                  className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-400 hover:text-coral transition-colors" 
-                  onClick={() => { clearReceiveForm(); setView("list"); }}
+                <button
+                  className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-400 hover:text-coral transition-colors"
+                  onClick={() => {
+                    clearReceiveForm();
+                    setView("list");
+                  }}
                   type="button"
                 >
                   &larr; Cancel
@@ -727,15 +830,25 @@ export default function PurchaseOrdersPage() {
               <form onSubmit={handleReceive}>
                 <div className="space-y-4">
                   {receiveForm.items.map((item, index) => (
-                    <div key={`${item.lineItemId}-${index}`} className="flex flex-col gap-6 p-6 rounded-3xl bg-ink-50/30 border border-ink-100 md:flex-row md:items-center">
+                    <div
+                      key={`${item.lineItemId}-${index}`}
+                      className="flex flex-col gap-6 p-6 rounded-3xl bg-ink-50/30 border border-ink-100 md:flex-row md:items-center"
+                    >
                       <div className="flex-1 min-w-0">
-                        <p className="text-lg font-bold text-ink-900 truncate">
-                          {item.productId}
-                        </p>
+                        <p className="text-lg font-bold text-ink-900 truncate">{item.productId}</p>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-[10px] font-bold uppercase tracking-wider text-ink-400">
-                          <p>Ordered: <span className="text-ink-900">{item.quantity}</span></p>
-                          <p>Received: <span className="text-ink-900">{item.previouslyReceived}</span></p>
-                          <p>Remaining: <span className="text-coral">{item.quantity - item.previouslyReceived}</span></p>
+                          <p>
+                            Ordered: <span className="text-ink-900">{item.quantity}</span>
+                          </p>
+                          <p>
+                            Received: <span className="text-ink-900">{item.previouslyReceived}</span>
+                          </p>
+                          <p>
+                            Remaining:{" "}
+                            <span className="text-coral">
+                              {item.quantity - item.previouslyReceived}
+                            </span>
+                          </p>
                         </div>
                       </div>
                       <div className="w-full md:w-32 shrink-0">
@@ -745,7 +858,7 @@ export default function PurchaseOrdersPage() {
                           required
                           type="number"
                           value={item.receivedQty}
-                          onChange={(event) => updateReceiveItem(index, "receivedQty", Number(event.target.value))}
+                          onChange={(e) => updateReceiveItem(index, "receivedQty", Number(e.target.value))}
                         />
                       </div>
                     </div>
@@ -753,7 +866,10 @@ export default function PurchaseOrdersPage() {
                 </div>
 
                 <div className="mt-12 flex justify-center">
-                  <button className="primary-btn px-12 py-4 text-base shadow-xl active:scale-95" type="submit">
+                  <button
+                    className="primary-btn px-12 py-4 text-base shadow-xl active:scale-95"
+                    type="submit"
+                  >
                     Confirm Receipt
                   </button>
                 </div>
@@ -764,4 +880,6 @@ export default function PurchaseOrdersPage() {
       </div>
     </div>
   );
-}
+};
+
+export default PurchaseOrdersPage;

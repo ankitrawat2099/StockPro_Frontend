@@ -1,14 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
 import PageHeader from "../components/PageHeader";
 import StatCard from "../components/StatCard";
-import { useAuth } from "../context/AuthContext";
+import { AuthContext } from "../context/AuthContext";
 import { API_ROUTES, DASHBOARD_COPY, NAV_ITEMS, ROLE_LABELS } from "../lib/constants";
 import { formatCurrency, getValue, safeArray } from "../lib/utils";
 
-export default function DashboardPage() {
-  const { user, token } = useAuth();
+const DashboardPage = () => {
+  const { user, token } = useContext(AuthContext);
   const [summary, setSummary] = useState({
     products: 0,
     warehouses: 0,
@@ -21,7 +21,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function loadDashboard() {
+    const loadDashboard = async () => {
       setLoading(true);
 
       const nextSummary = {
@@ -36,34 +36,49 @@ export default function DashboardPage() {
 
       try {
         if (["ADMIN", "MANAGER", "OFFICER", "STAFF"].includes(user?.role)) {
-          const prodRes = await axios.get(API_ROUTES.products.root, { headers: { Authorization: `Bearer ${token}` } });
+          const prodRes = await axios.get(API_ROUTES.products.root, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
           nextSummary.products = safeArray(prodRes.data).length;
 
-          const whRes = await axios.get(API_ROUTES.warehouse.warehouses, { headers: { Authorization: `Bearer ${token}` } });
+          const whRes = await axios.get(API_ROUTES.warehouse.warehouses, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
           nextSummary.warehouses = safeArray(whRes.data).length;
 
-          const lowStockRes = await axios.get(API_ROUTES.warehouse.lowStock, { headers: { Authorization: `Bearer ${token}` } });
+          const lowStockRes = await axios.get(API_ROUTES.warehouse.lowStock, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
           nextSummary.lowStock = safeArray(lowStockRes.data).length;
         }
 
         if (user?.role === "ADMIN") {
-          const userRes = await axios.get(API_ROUTES.auth.users, { headers: { Authorization: `Bearer ${token}` } });
+          const userRes = await axios.get(API_ROUTES.auth.users, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
           nextSummary.users = safeArray(userRes.data).length;
         }
 
         if (user?.role === "OFFICER") {
-          const supRes = await axios.get(API_ROUTES.suppliers.root, { headers: { Authorization: `Bearer ${token}` } });
+          const supRes = await axios.get(API_ROUTES.suppliers.root, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
           nextSummary.suppliers = safeArray(supRes.data).length;
         }
 
         if (["ADMIN", "MANAGER", "OFFICER"].includes(user?.role)) {
-          const poRes = await axios.get(API_ROUTES.purchaseOrders.byStatus("APPROVED"), { headers: { Authorization: `Bearer ${token}` } });
+          const poRes = await axios.get(API_ROUTES.purchaseOrders.byStatus("APPROVED"), {
+            headers: { Authorization: `Bearer ${token}` },
+          });
           nextSummary.approvedPos = safeArray(poRes.data).length;
         }
 
         if (["ADMIN", "MANAGER"].includes(user?.role)) {
-          const valRes = await axios.get(API_ROUTES.reports.totalValue, { headers: { Authorization: `Bearer ${token}` } });
-          nextSummary.totalValue = getValue(valRes.data, "totalValue", "TotalValue") || valRes.data || 0;
+          const valRes = await axios.get(API_ROUTES.reports.totalValue, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          nextSummary.totalValue =
+            getValue(valRes.data, "totalValue", "TotalValue") || valRes.data || 0;
         }
       } catch (error) {
         console.error("Failed to load some dashboard data:", error);
@@ -71,7 +86,7 @@ export default function DashboardPage() {
         setSummary(nextSummary);
         setLoading(false);
       }
-    }
+    };
 
     loadDashboard();
   }, [user?.role]);
@@ -134,4 +149,6 @@ export default function DashboardPage() {
       </section>
     </div>
   );
-}
+};
+
+export default DashboardPage;

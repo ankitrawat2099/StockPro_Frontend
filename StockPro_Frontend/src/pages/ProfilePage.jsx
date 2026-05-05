@@ -1,12 +1,12 @@
-import { useState } from "react";
-import FloatingNotice from "../components/FloatingNotice";
+import { useState, useContext } from "react";
+import { toast } from "react-toastify";
 import PageHeader from "../components/PageHeader";
-import { useAuth } from "../context/AuthContext";
+import { AuthContext } from "../context/AuthContext";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { formatDate } from "../lib/utils";
 
-export default function ProfilePage() {
-  const { user, updateProfile, changePassword, logout, refreshSession } = useAuth();
+const ProfilePage = () => {
+  const { user, updateProfile, changePassword, logout, refreshSession } = useContext(AuthContext);
   const [profileForm, setProfileForm, clearProfileForm] = usePersistentState("draft:profile:form", {
     fullName: user?.fullName || "",
     phone: user?.phone || "",
@@ -16,13 +16,17 @@ export default function ProfilePage() {
     oldPassword: "",
     newPassword: "",
   });
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
 
-  async function handleProfileSubmit(event) {
+  const handleProfileChange = (e) => {
+    setProfileForm((current) => ({ ...current, [e.target.name]: e.target.value }));
+  };
+
+  const handlePasswordChange = (e) => {
+    setPasswordForm((current) => ({ ...current, [e.target.name]: e.target.value }));
+  };
+
+  const handleProfileSubmit = async (event) => {
     event.preventDefault();
-    setMessage("");
-    setError("");
 
     try {
       const nextUser = await updateProfile(profileForm);
@@ -31,42 +35,37 @@ export default function ProfilePage() {
         phone: nextUser?.phone || "",
         department: nextUser?.department || "",
       });
-      setMessage("Profile updated successfully.");
+      toast.success("Profile updated successfully.");
     } catch (submitError) {
-      setError(submitError.message);
+      toast.error(submitError.message);
     }
-  }
+  };
 
-  async function handlePasswordSubmit(event) {
+  const handlePasswordSubmit = async (event) => {
     event.preventDefault();
-    setMessage("");
-    setError("");
 
     try {
       await changePassword(passwordForm);
-      setMessage("Password changed successfully. You will be logged out in 2 seconds...");
+      toast.success("Password changed successfully. You will be logged out in 2 seconds...");
       setPasswordForm({ oldPassword: "", newPassword: "" });
-      
+
       // Forced logout after short delay
       setTimeout(() => {
         logout();
       }, 2000);
     } catch (submitError) {
-      setError(submitError.message);
+      toast.error(submitError.message);
     }
-  }
+  };
 
-  async function handleSessionRefresh() {
-    setMessage("");
-    setError("");
-
+  const handleSessionRefresh = async () => {
     try {
       await refreshSession();
-      setMessage("Session token refreshed successfully.");
+      toast.success("Session token refreshed successfully.");
     } catch (submitError) {
-      setError(submitError.message);
+      toast.error(submitError.message);
     }
-  }
+  };
 
   return (
     <div className="space-y-8">
@@ -76,11 +75,11 @@ export default function ProfilePage() {
         description="Every role can update profile details and change password from this page."
       />
 
-      <FloatingNotice error={error} message={message} />
-
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <section className="panel-soft p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">Account Details</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">
+            Account Details
+          </p>
           <dl className="mt-5 grid gap-4 text-sm">
             <div>
               <dt className="text-ink-500">Full name</dt>
@@ -112,34 +111,29 @@ export default function ProfilePage() {
 
         <section className="grid gap-4">
           <form className="panel-soft p-6" onSubmit={handleProfileSubmit}>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">Update Profile</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">
+              Update Profile
+            </p>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <div className="md:col-span-2">
                 <label className="mb-2 block text-sm font-medium text-ink-700">Full name</label>
                 <input
+                  name="fullName"
                   required
                   value={profileForm.fullName}
-                  onChange={(event) =>
-                    setProfileForm((current) => ({ ...current, fullName: event.target.value }))
-                  }
+                  onChange={handleProfileChange}
                 />
               </div>
               <div>
                 <label className="mb-2 block text-sm font-medium text-ink-700">Phone</label>
-                <input
-                  value={profileForm.phone}
-                  onChange={(event) =>
-                    setProfileForm((current) => ({ ...current, phone: event.target.value }))
-                  }
-                />
+                <input name="phone" value={profileForm.phone} onChange={handleProfileChange} />
               </div>
               <div>
                 <label className="mb-2 block text-sm font-medium text-ink-700">Department</label>
                 <input
+                  name="department"
                   value={profileForm.department}
-                  onChange={(event) =>
-                    setProfileForm((current) => ({ ...current, department: event.target.value }))
-                  }
+                  onChange={handleProfileChange}
                 />
               </div>
             </div>
@@ -152,28 +146,28 @@ export default function ProfilePage() {
           </form>
 
           <form className="panel-soft p-6" onSubmit={handlePasswordSubmit}>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">Change Password</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">
+              Change Password
+            </p>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <div>
                 <label className="mb-2 block text-sm font-medium text-ink-700">Old password</label>
                 <input
+                  name="oldPassword"
                   required
                   type="password"
                   value={passwordForm.oldPassword}
-                  onChange={(event) =>
-                    setPasswordForm((current) => ({ ...current, oldPassword: event.target.value }))
-                  }
+                  onChange={handlePasswordChange}
                 />
               </div>
               <div>
                 <label className="mb-2 block text-sm font-medium text-ink-700">New password</label>
                 <input
+                  name="newPassword"
                   required
                   type="password"
                   value={passwordForm.newPassword}
-                  onChange={(event) =>
-                    setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))
-                  }
+                  onChange={handlePasswordChange}
                 />
               </div>
             </div>
@@ -188,4 +182,6 @@ export default function ProfilePage() {
       </div>
     </div>
   );
-}
+};
+
+export default ProfilePage;

@@ -14,7 +14,7 @@ import SuppliersPage from "./pages/SuppliersPage";
 import UsersPage from "./pages/UsersPage";
 import WarehousesPage from "./pages/WarehousesPage";
 
-export default function App() {
+const App = () => {
   return (
     <Routes>
       <Route
@@ -111,4 +111,6 @@ export default function App() {
       </Route>
     </Routes>
   );
-}
+};
+
+export default App;

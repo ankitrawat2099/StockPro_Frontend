@@ -1,10 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import axios from "axios";
-import { useAuth } from "../context/AuthContext";
+import { AuthContext } from "../context/AuthContext";
 import DataTable from "../components/DataTable";
-import FloatingNotice from "../components/FloatingNotice";
+import { toast } from "react-toastify";
 import PageHeader from "../components/PageHeader";
-import { useNotice } from "../hooks/useNotice";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { API_ROUTES } from "../lib/constants";
 import { extractApiMessage, getValue, isPositiveInteger, safeArray } from "../lib/utils";
@@ -27,87 +26,103 @@ const initialRating = {
   value: 4,
 };
 
-export default function SuppliersPage() {
-  const { token } = useAuth();
+const SuppliersPage = () => {
+  const { token } = useContext(AuthContext);
   const [suppliers, setSuppliers] = useState([]);
   const [form, setForm, clearForm] = usePersistentState("draft:suppliers:form", initialForm);
-  const [editingId, setEditingId, clearEditingId] = usePersistentState("draft:suppliers:editingId", "");
-  const [lookupMode, setLookupMode] = usePersistentState("draft:suppliers:lookupMode", "name");
-  const [lookupValue, setLookupValue] = usePersistentState("draft:suppliers:lookupValue", "");
-  const [rating, setRating, clearRating] = usePersistentState("draft:suppliers:rating", initialRating);
-  const { message, error, setNotice } = useNotice();
+  const [editingId, setEditingId, clearEditingId] = usePersistentState(
+    "draft:suppliers:editingId",
+    ""
+  );
+  const [lookup, setLookup] = usePersistentState("draft:suppliers:lookup", {
+    mode: "name",
+    value: "",
+  });
+  const [rating, setRating, clearRating] = usePersistentState(
+    "draft:suppliers:rating",
+    initialRating
+  );
 
-  async function loadSuppliers() {
+  const loadSuppliers = async () => {
     try {
-      const response = await axios.get(API_ROUTES.suppliers.root, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await axios.get(API_ROUTES.suppliers.root, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       setSuppliers(safeArray(response.data));
       return true;
     } catch (loadError) {
-      setError(extractApiMessage(loadError));
+      toast.error(extractApiMessage(loadError));
       return false;
     }
-  }
+  };
 
   useEffect(() => {
     loadSuppliers();
   }, []);
 
-  async function handleLookup() {
-    setNotice();
+  const handleChange = (e, setter) => {
+    const { type } = e.target;
+    const finalValue = type === "number" ? Number(e.target.value) : e.target.value;
+    setter((current) => ({ ...current, [e.target.name]: finalValue }));
+  };
 
+  const handleLookup = async () => {
     try {
-      if (!lookupValue.trim()) {
+      if (!lookup.value.trim()) {
         await loadSuppliers();
         return;
       }
 
-      if (lookupMode === "id" && !isPositiveInteger(lookupValue)) {
-        setError("Enter a valid numeric supplier ID.");
+      if (lookup.mode === "id" && !isPositiveInteger(lookup.value)) {
+        toast.error("Enter a valid numeric supplier ID.");
         return;
       }
 
-      const value = lookupValue.trim();
-      let path = API_ROUTES.suppliers.search(value);
+      const val = lookup.value.trim();
+      let path = API_ROUTES.suppliers.search(val);
 
-      if (lookupMode === "id") {
-        path = API_ROUTES.suppliers.byId(value);
-      } else if (lookupMode === "city") {
-        path = API_ROUTES.suppliers.byCity(value);
-      } else if (lookupMode === "country") {
-        path = API_ROUTES.suppliers.byCountry(value);
+      if (lookup.mode === "id") {
+        path = API_ROUTES.suppliers.byId(val);
+      } else if (lookup.mode === "city") {
+        path = API_ROUTES.suppliers.byCity(val);
+      } else if (lookup.mode === "country") {
+        path = API_ROUTES.suppliers.byCountry(val);
       }
 
       const response = await axios.get(path, { headers: { Authorization: `Bearer ${token}` } });
       const payload = response.data;
       setSuppliers(Array.isArray(payload) ? payload : payload ? [payload] : []);
-      setNotice("Supplier results loaded.");
+      toast.success("Supplier results loaded.");
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleSubmit(event) {
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    setNotice();
 
     try {
       if (editingId) {
-        await axios.put(API_ROUTES.suppliers.byId(editingId), form, { headers: { Authorization: `Bearer ${token}` } });
-        setMessage("Supplier updated.");
+        await axios.put(API_ROUTES.suppliers.byId(editingId), form, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        toast.success("Supplier updated.");
       } else {
-        await axios.post(API_ROUTES.suppliers.root, form, { headers: { Authorization: `Bearer ${token}` } });
-        setMessage("Supplier created.");
+        await axios.post(API_ROUTES.suppliers.root, form, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        toast.success("Supplier created.");
       }
 
       clearEditingId();
       clearForm();
       await loadSuppliers();
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  function handleEdit(row) {
+  const handleEdit = (row) => {
     setEditingId(getValue(row, "supplierId", "SupplierId"));
     setForm({
       name: getValue(row, "name", "Name"),
@@ -121,46 +136,45 @@ export default function SuppliersPage() {
       paymentTerms: getValue(row, "paymentTerms", "PaymentTerms"),
       leadTimeDays: getValue(row, "leadTimeDays", "LeadTimeDays") || 0,
     });
-  }
+  };
 
-  async function handleDeactivate(id) {
-    setNotice();
-
+  const handleDeactivate = async (id) => {
     try {
-      await axios.put(API_ROUTES.suppliers.deactivate(id), null, { headers: { Authorization: `Bearer ${token}` } });
-      setMessage("Supplier deactivated.");
+      await axios.put(API_ROUTES.suppliers.deactivate(id), null, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      toast.success("Supplier deactivated.");
       await loadSuppliers();
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleRating(event) {
+  const handleRating = async (event) => {
     event.preventDefault();
-    setNotice();
 
     try {
-      await axios.put(API_ROUTES.suppliers.rating(rating.supplierId, rating.value), null, token);
-      setMessage("Supplier rating updated.");
+      await axios.put(API_ROUTES.suppliers.rating(rating.supplierId, rating.value), null, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      toast.success("Supplier rating updated.");
       clearRating();
       await loadSuppliers();
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleRefresh() {
-    setNotice();
-
+  const handleRefresh = async () => {
     try {
       const loaded = await loadSuppliers();
       if (loaded) {
-        setNotice("Suppliers refreshed.");
+        toast.success("Suppliers refreshed.");
       }
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
   const columns = [
     {
@@ -172,10 +186,12 @@ export default function SuppliersPage() {
             Contact: {getValue(row, "contactPerson", "ContactPerson") || "-"}
           </p>
           <p className="mt-1 text-xs text-ink-500">
-            Email: {getValue(row, "email", "Email") || "-"} | Phone: {getValue(row, "phone", "Phone") || "-"}
+            Email: {getValue(row, "email", "Email") || "-"} | Phone:{" "}
+            {getValue(row, "phone", "Phone") || "-"}
           </p>
           <p className="mt-1 text-xs text-ink-500">
-            Terms: {getValue(row, "paymentTerms", "PaymentTerms") || "-"} | Tax ID: {getValue(row, "taxId", "TaxId") || "-"}
+            Terms: {getValue(row, "paymentTerms", "PaymentTerms") || "-"} | Tax ID:{" "}
+            {getValue(row, "taxId", "TaxId") || "-"}
           </p>
           <p className="mt-2 break-all font-mono text-[11px] text-ink-500">
             ID: {getValue(row, "supplierId", "SupplierId")}
@@ -219,28 +235,31 @@ export default function SuppliersPage() {
         }
       />
 
-      <FloatingNotice error={error} message={message} />
-
       <section className="panel-soft p-6">
         <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)_auto_auto]">
-          <select value={lookupMode} onChange={(event) => setLookupMode(event.target.value)}>
+          <select
+            name="mode"
+            value={lookup.mode}
+            onChange={(e) => handleChange(e, setLookup)}
+          >
             <option value="name">Search by name</option>
             <option value="id">Lookup by supplier ID</option>
             <option value="city">Filter by city</option>
             <option value="country">Filter by country</option>
           </select>
           <input
+            name="value"
             placeholder={
-              lookupMode === "id"
+              lookup.mode === "id"
                 ? "Enter supplier ID"
-                : lookupMode === "city"
+                : lookup.mode === "city"
                   ? "Enter city"
-                  : lookupMode === "country"
+                  : lookup.mode === "country"
                     ? "Enter country"
                     : "Search suppliers by name"
             }
-            value={lookupValue}
-            onChange={(event) => setLookupValue(event.target.value)}
+            value={lookup.value}
+            onChange={(e) => handleChange(e, setLookup)}
           />
           <button className="primary-btn md:w-40" onClick={handleLookup} type="button">
             Run lookup
@@ -248,8 +267,7 @@ export default function SuppliersPage() {
           <button
             className="secondary-btn md:w-36"
             onClick={() => {
-              setLookupMode("name");
-              setLookupValue("");
+              setLookup({ mode: "name", value: "" });
               handleRefresh();
             }}
             type="button"
@@ -280,88 +298,100 @@ export default function SuppliersPage() {
                   <div className="md:col-span-2">
                     <label className="mb-2 block text-sm font-medium text-ink-700">Name</label>
                     <input
+                      name="name"
                       required
                       value={form.name}
-                      onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                      onChange={(e) => handleChange(e, setForm)}
                     />
                   </div>
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-ink-700">Contact person</label>
+                    <label className="mb-2 block text-sm font-medium text-ink-700">
+                      Contact person
+                    </label>
                     <input
+                      name="contactPerson"
                       value={form.contactPerson}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, contactPerson: event.target.value }))
-                      }
+                      onChange={(e) => handleChange(e, setForm)}
                     />
                   </div>
                   <div>
                     <label className="mb-2 block text-sm font-medium text-ink-700">Email</label>
                     <input
+                      name="email"
                       required
                       type="email"
                       value={form.email}
-                      onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+                      onChange={(e) => handleChange(e, setForm)}
                     />
                   </div>
                   <div>
                     <label className="mb-2 block text-sm font-medium text-ink-700">Phone</label>
                     <input
+                      name="phone"
                       required
                       value={form.phone}
-                      onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
+                      onChange={(e) => handleChange(e, setForm)}
                     />
                   </div>
                   <div>
                     <label className="mb-2 block text-sm font-medium text-ink-700">Address</label>
                     <input
+                      name="address"
                       value={form.address}
-                      onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))}
+                      onChange={(e) => handleChange(e, setForm)}
                     />
                   </div>
                 </div>
               </div>
 
               <div className="rounded-3xl border border-ink-100 bg-white p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">Location and Terms</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">
+                  Location and Terms
+                </p>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <div>
                     <label className="mb-2 block text-sm font-medium text-ink-700">City</label>
                     <input
+                      name="city"
                       value={form.city}
-                      onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))}
+                      onChange={(e) => handleChange(e, setForm)}
                     />
                   </div>
                   <div>
                     <label className="mb-2 block text-sm font-medium text-ink-700">Country</label>
                     <input
+                      name="country"
                       value={form.country}
-                      onChange={(event) => setForm((current) => ({ ...current, country: event.target.value }))}
+                      onChange={(e) => handleChange(e, setForm)}
                     />
                   </div>
                   <div>
                     <label className="mb-2 block text-sm font-medium text-ink-700">Tax ID</label>
                     <input
+                      name="taxId"
                       value={form.taxId}
-                      onChange={(event) => setForm((current) => ({ ...current, taxId: event.target.value }))}
+                      onChange={(e) => handleChange(e, setForm)}
                     />
                   </div>
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-ink-700">Payment terms</label>
+                    <label className="mb-2 block text-sm font-medium text-ink-700">
+                      Payment terms
+                    </label>
                     <input
+                      name="paymentTerms"
                       value={form.paymentTerms}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, paymentTerms: event.target.value }))
-                      }
+                      onChange={(e) => handleChange(e, setForm)}
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="mb-2 block text-sm font-medium text-ink-700">Lead time days</label>
+                    <label className="mb-2 block text-sm font-medium text-ink-700">
+                      Lead time days
+                    </label>
                     <input
+                      name="leadTimeDays"
                       type="number"
                       value={form.leadTimeDays}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, leadTimeDays: Number(event.target.value) }))
-                      }
+                      onChange={(e) => handleChange(e, setForm)}
                     />
                   </div>
                 </div>
@@ -397,26 +427,24 @@ export default function SuppliersPage() {
               <div>
                 <label className="mb-2 block text-sm font-medium text-ink-700">Supplier ID</label>
                 <input
+                  name="supplierId"
                   required
                   type="number"
                   value={rating.supplierId}
-                  onChange={(event) =>
-                    setRating((current) => ({ ...current, supplierId: event.target.value }))
-                  }
+                  onChange={(e) => handleChange(e, setRating)}
                 />
               </div>
               <div>
                 <label className="mb-2 block text-sm font-medium text-ink-700">Rating</label>
                 <input
+                  name="value"
                   required
                   max="5"
                   min="0"
                   step="0.5"
                   type="number"
                   value={rating.value}
-                  onChange={(event) =>
-                    setRating((current) => ({ ...current, value: Number(event.target.value) }))
-                  }
+                  onChange={(e) => handleChange(e, setRating)}
                 />
               </div>
             </div>
@@ -434,4 +462,6 @@ export default function SuppliersPage() {
       </div>
     </div>
   );
-}
+};
+
+export default SuppliersPage;

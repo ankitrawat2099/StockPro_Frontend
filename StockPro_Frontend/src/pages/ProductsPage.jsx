@@ -1,10 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import axios from "axios";
 import DataTable from "../components/DataTable";
-import FloatingNotice from "../components/FloatingNotice";
+import { toast } from "react-toastify";
 import PageHeader from "../components/PageHeader";
-import { useAuth } from "../context/AuthContext";
-import { useNotice } from "../hooks/useNotice";
+import { AuthContext } from "../context/AuthContext";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { API_ROUTES } from "../lib/constants";
 import { extractApiMessage, formatCurrency, getValue, isGuid, safeArray } from "../lib/utils";
@@ -26,104 +25,117 @@ const initialForm = {
   barcode: "",
 };
 
-export default function ProductsPage() {
-  const { user, token } = useAuth();
+const ProductsPage = () => {
+  const { user, token } = useContext(AuthContext);
   const canManage = user?.role === "MANAGER";
   const [products, setProducts] = useState([]);
   const [lowStock, setLowStock] = useState([]);
   const [form, setForm, clearForm] = usePersistentState("draft:products:form", initialForm);
-  const [editingId, setEditingId, clearEditingId] = usePersistentState("draft:products:editingId", "");
-  const [lookupMode, setLookupMode] = usePersistentState("draft:products:lookupMode", "name");
-  const [lookupValue, setLookupValue] = usePersistentState("draft:products:lookupValue", "");
-  const { message, error, setNotice } = useNotice();
+  const [editingId, setEditingId, clearEditingId] = usePersistentState(
+    "draft:products:editingId",
+    ""
+  );
+  const [lookup, setLookup] = usePersistentState("draft:products:lookup", {
+    mode: "name",
+    value: "",
+  });
 
-  async function loadProducts() {
+  const loadProducts = async () => {
     try {
-      const response = await axios.get(API_ROUTES.products.root, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await axios.get(API_ROUTES.products.root, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       setProducts(safeArray(response.data));
       return true;
     } catch (loadError) {
-      setNotice("", extractApiMessage(loadError));
+      toast.error(extractApiMessage(loadError));
       return false;
     }
-  }
+  };
 
   useEffect(() => {
     loadProducts();
   }, []);
 
-  async function handleLookup() {
-    setNotice();
+  const handleChange = (e, setter) => {
+    const { type, checked } = e.target;
+    const finalValue = type === "checkbox" ? checked : type === "number" ? Number(e.target.value) : e.target.value;
+    setter((current) => ({ ...current, [e.target.name]: finalValue }));
+  };
 
+  const handleLookup = async () => {
     try {
-      if (!lookupValue.trim()) {
+      if (!lookup.value.trim()) {
         await loadProducts();
         return;
       }
 
-      if (lookupMode === "id" && !isGuid(lookupValue)) {
-        setNotice("", "Enter a valid product ID in GUID format.");
+      if (lookup.mode === "id" && !isGuid(lookup.value)) {
+        toast.error("Enter a valid product ID in GUID format.");
         return;
       }
 
-      const value = lookupValue.trim();
-      let path = API_ROUTES.products.search(value);
+      const val = lookup.value.trim();
+      let path = API_ROUTES.products.search(val);
 
-      if (lookupMode === "id") {
-        path = API_ROUTES.products.byId(value);
-      } else if (lookupMode === "sku") {
-        path = API_ROUTES.products.bySku(value);
-      } else if (lookupMode === "category") {
-        path = API_ROUTES.products.byCategory(value);
-      } else if (lookupMode === "brand") {
-        path = API_ROUTES.products.byBrand(value);
-      } else if (lookupMode === "barcode") {
-        path = API_ROUTES.products.byBarcode(value);
+      if (lookup.mode === "id") {
+        path = API_ROUTES.products.byId(val);
+      } else if (lookup.mode === "sku") {
+        path = API_ROUTES.products.bySku(val);
+      } else if (lookup.mode === "category") {
+        path = API_ROUTES.products.byCategory(val);
+      } else if (lookup.mode === "brand") {
+        path = API_ROUTES.products.byBrand(val);
+      } else if (lookup.mode === "barcode") {
+        path = API_ROUTES.products.byBarcode(val);
       }
 
       const response = await axios.get(path, { headers: { Authorization: `Bearer ${token}` } });
       const payload = response.data;
       setProducts(Array.isArray(payload) ? payload : payload ? [payload] : []);
-      setNotice("Product results loaded.");
+      toast.success("Product results loaded.");
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleLowStock() {
-    setNotice();
-
+  const handleLowStock = async () => {
     try {
-      const response = await axios.get(API_ROUTES.products.lowStock, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await axios.get(API_ROUTES.products.lowStock, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       setLowStock(safeArray(response.data));
-      setNotice("Low-stock products loaded.");
+      toast.success("Low-stock products loaded.");
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleSubmit(event) {
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    setNotice();
 
     try {
       if (editingId) {
-        await axios.put(API_ROUTES.products.byId(editingId), form, { headers: { Authorization: `Bearer ${token}` } });
-        setNotice("Product updated.");
+        await axios.put(API_ROUTES.products.byId(editingId), form, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        toast.success("Product updated.");
       } else {
-        await axios.post(API_ROUTES.products.root, form, { headers: { Authorization: `Bearer ${token}` } });
-        setNotice("Product created.");
+        await axios.post(API_ROUTES.products.root, form, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        toast.success("Product created.");
       }
 
       clearForm();
       clearEditingId();
       await loadProducts();
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  function handleEdit(product) {
+  const handleEdit = (product) => {
     setEditingId(getValue(product, "productId", "ProductId"));
     setForm({
       sku: getValue(product, "sku", "Sku"),
@@ -141,48 +153,46 @@ export default function ProductsPage() {
       isActive: getValue(product, "isActive", "IsActive"),
       barcode: getValue(product, "barcode", "Barcode"),
     });
-  }
+  };
 
-  async function handleDeactivate(productId) {
-    setNotice();
-
+  const handleDeactivate = async (productId) => {
     try {
-      await axios.put(API_ROUTES.products.deactivate(productId), null, { headers: { Authorization: `Bearer ${token}` } });
-      setNotice("Product deactivated.");
+      await axios.put(API_ROUTES.products.deactivate(productId), null, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      toast.success("Product deactivated.");
       await loadProducts();
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleDelete(productId) {
-    setNotice();
-
+  const handleDelete = async (productId) => {
     try {
-      await axios.delete(API_ROUTES.products.remove(productId), { headers: { Authorization: `Bearer ${token}` } });
-      setNotice("Product deleted.");
+      await axios.delete(API_ROUTES.products.remove(productId), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      toast.success("Product deleted.");
       if (editingId === productId) {
         clearEditingId();
         clearForm();
       }
       await loadProducts();
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleRefresh() {
-    setNotice();
-
+  const handleRefresh = async () => {
     try {
       const loaded = await loadProducts();
       if (loaded) {
-        setNotice("Products refreshed.");
+        toast.success("Products refreshed.");
       }
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
   const columns = [
     {
@@ -194,12 +204,16 @@ export default function ProductsPage() {
             SKU: {getValue(row, "sku", "Sku")} | Category: {getValue(row, "category", "Category") || "-"}
           </p>
           <p className="mt-1 text-xs text-ink-500">
-            Brand: {getValue(row, "brand", "Brand") || "-"} | Unit: {getValue(row, "unitOfMeasure", "UnitOfMeasure") || "-"}
+            Brand: {getValue(row, "brand", "Brand") || "-"} | Unit:{" "}
+            {getValue(row, "unitOfMeasure", "UnitOfMeasure") || "-"}
           </p>
           <p className="mt-1 text-xs text-ink-500">
-            Barcode: {getValue(row, "barcode", "Barcode") || "-"} | Cost: {formatCurrency(getValue(row, "costPrice", "CostPrice"))}
+            Barcode: {getValue(row, "barcode", "Barcode") || "-"} | Cost:{" "}
+            {formatCurrency(getValue(row, "costPrice", "CostPrice"))}
           </p>
-          <p className="mt-2 text-xs text-ink-600">{getValue(row, "description", "Description") || "No description added."}</p>
+          <p className="mt-2 text-xs text-ink-600">
+            {getValue(row, "description", "Description") || "No description added."}
+          </p>
           <p className="mt-2 break-all font-mono text-[11px] text-ink-500">
             ID: {getValue(row, "productId", "ProductId")}
           </p>
@@ -222,7 +236,9 @@ export default function ProductsPage() {
       render: (row) => (
         <span
           className={`tag ${
-            getValue(row, "isActive", "IsActive") ? "bg-mint/30 text-ink-950" : "bg-coral/10 text-coral"
+            getValue(row, "isActive", "IsActive")
+              ? "bg-mint/30 text-ink-950"
+              : "bg-coral/10 text-coral"
           }`}
         >
           {getValue(row, "isActive", "IsActive") ? "Active" : "Inactive"}
@@ -273,11 +289,13 @@ export default function ProductsPage() {
         }
       />
 
-      <FloatingNotice error={error} message={message} />
-
       <section className="panel-soft p-6">
         <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)_auto_auto]">
-          <select value={lookupMode} onChange={(event) => setLookupMode(event.target.value)}>
+          <select
+            name="mode"
+            value={lookup.mode}
+            onChange={(e) => handleChange(e, setLookup)}
+          >
             <option value="name">Search by name</option>
             <option value="id">Lookup by product ID</option>
             <option value="sku">Lookup by SKU</option>
@@ -286,21 +304,22 @@ export default function ProductsPage() {
             <option value="barcode">Lookup by barcode</option>
           </select>
           <input
+            name="value"
             placeholder={
-              lookupMode === "id"
+              lookup.mode === "id"
                 ? "Enter product ID"
-                : lookupMode === "sku"
+                : lookup.mode === "sku"
                   ? "Enter SKU"
-                  : lookupMode === "category"
+                  : lookup.mode === "category"
                     ? "Enter category"
-                    : lookupMode === "brand"
+                    : lookup.mode === "brand"
                       ? "Enter brand"
-                      : lookupMode === "barcode"
+                      : lookup.mode === "barcode"
                         ? "Enter barcode"
                         : "Search by product name"
             }
-            value={lookupValue}
-            onChange={(event) => setLookupValue(event.target.value)}
+            value={lookup.value}
+            onChange={(e) => handleChange(e, setLookup)}
           />
           <button className="primary-btn md:w-40" onClick={handleLookup} type="button">
             Run lookup
@@ -308,8 +327,7 @@ export default function ProductsPage() {
           <button
             className="secondary-btn md:w-36"
             onClick={() => {
-              setLookupMode("name");
-              setLookupValue("");
+              setLookup({ mode: "name", value: "" });
               handleRefresh();
             }}
             type="button"
@@ -338,120 +356,124 @@ export default function ProductsPage() {
                 <div>
                   <label className="mb-2 block text-sm font-medium text-ink-700">SKU</label>
                   <input
+                    name="sku"
                     required
                     value={form.sku}
-                    onChange={(event) => setForm((current) => ({ ...current, sku: event.target.value }))}
+                    onChange={(e) => handleChange(e, setForm)}
                   />
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-ink-700">Barcode</label>
                   <input
+                    name="barcode"
                     value={form.barcode}
-                    onChange={(event) => setForm((current) => ({ ...current, barcode: event.target.value }))}
+                    onChange={(e) => handleChange(e, setForm)}
                   />
                 </div>
                 <div className="md:col-span-2">
                   <label className="mb-2 block text-sm font-medium text-ink-700">Name</label>
                   <input
+                    name="name"
                     required
                     value={form.name}
-                    onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                    onChange={(e) => handleChange(e, setForm)}
                   />
                 </div>
                 <div className="md:col-span-2">
                   <label className="mb-2 block text-sm font-medium text-ink-700">Description</label>
                   <textarea
+                    name="description"
                     rows={3}
                     value={form.description}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, description: event.target.value }))
-                    }
+                    onChange={(e) => handleChange(e, setForm)}
                   />
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-ink-700">Category</label>
                   <input
+                    name="category"
                     required
                     value={form.category}
-                    onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
+                    onChange={(e) => handleChange(e, setForm)}
                   />
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-ink-700">Brand</label>
                   <input
+                    name="brand"
                     value={form.brand}
-                    onChange={(event) => setForm((current) => ({ ...current, brand: event.target.value }))}
+                    onChange={(e) => handleChange(e, setForm)}
                   />
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-ink-700">Unit</label>
                   <input
+                    name="unitOfMeasure"
                     value={form.unitOfMeasure}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, unitOfMeasure: event.target.value }))
-                    }
+                    onChange={(e) => handleChange(e, setForm)}
                   />
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-ink-700">Image URL</label>
                   <input
+                    name="imageUrl"
                     value={form.imageUrl}
-                    onChange={(event) => setForm((current) => ({ ...current, imageUrl: event.target.value }))}
+                    onChange={(e) => handleChange(e, setForm)}
                   />
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-ink-700">Cost price</label>
                   <input
+                    name="costPrice"
                     type="number"
                     value={form.costPrice}
-                    onChange={(event) => setForm((current) => ({ ...current, costPrice: Number(event.target.value) }))}
+                    onChange={(e) => handleChange(e, setForm)}
                   />
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-ink-700">Selling price</label>
                   <input
+                    name="sellingPrice"
                     type="number"
                     value={form.sellingPrice}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, sellingPrice: Number(event.target.value) }))
-                    }
+                    onChange={(e) => handleChange(e, setForm)}
                   />
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-ink-700">Reorder level</label>
                   <input
+                    name="reorderLevel"
                     type="number"
                     value={form.reorderLevel}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, reorderLevel: Number(event.target.value) }))
-                    }
+                    onChange={(e) => handleChange(e, setForm)}
                   />
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-ink-700">Max stock</label>
                   <input
+                    name="maxStockLevel"
                     type="number"
                     value={form.maxStockLevel}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, maxStockLevel: Number(event.target.value) }))
-                    }
+                    onChange={(e) => handleChange(e, setForm)}
                   />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-ink-700">Lead time days</label>
+                  <label className="mb-2 block text-sm font-medium text-ink-700">
+                    Lead time days
+                  </label>
                   <input
+                    name="leadTimeDays"
                     type="number"
                     value={form.leadTimeDays}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, leadTimeDays: Number(event.target.value) }))
-                    }
+                    onChange={(e) => handleChange(e, setForm)}
                   />
                 </div>
                 <div className="flex items-center gap-3 rounded-2xl bg-cream px-4 py-4 md:col-span-2 md:pt-4">
                   <input
+                    name="isActive"
                     checked={form.isActive}
                     className="h-5 w-5 shrink-0"
-                    onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))}
+                    onChange={(e) => handleChange(e, setForm)}
                     type="checkbox"
                   />
                   <span className="text-sm text-ink-700">Active product</span>
@@ -480,7 +502,9 @@ export default function ProductsPage() {
           ) : null}
 
           <section className="panel-soft p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">Low Stock Snapshot</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">
+              Low Stock Snapshot
+            </p>
             <div className="mt-5">
               <DataTable
                 columns={[
@@ -498,7 +522,10 @@ export default function ProductsPage() {
                     ),
                   },
                   { label: "SKU", render: (row) => getValue(row, "sku", "Sku") || "-" },
-                  { label: "Reorder", render: (row) => getValue(row, "reorderLevel", "ReorderLevel") || "-" },
+                  {
+                    label: "Reorder",
+                    render: (row) => getValue(row, "reorderLevel", "ReorderLevel") || "-",
+                  },
                 ]}
                 emptyMessage="Use the low stock button to load products under threshold."
                 rows={lowStock}
@@ -509,4 +536,6 @@ export default function ProductsPage() {
       </div>
     </div>
   );
-}
+};
+
+export default ProductsPage;

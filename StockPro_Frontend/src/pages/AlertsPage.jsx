@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useState, useContext } from "react";
 import axios from "axios";
 import DataTable from "../components/DataTable";
-import FloatingNotice from "../components/FloatingNotice";
+import { toast } from "react-toastify";
 import PageHeader from "../components/PageHeader";
 import { usePersistentState } from "../hooks/usePersistentState";
-import { useNotice } from "../hooks/useNotice";
-import { useAuth } from "../context/AuthContext";
+import { AuthContext } from "../context/AuthContext";
 import { API_ROUTES } from "../lib/constants";
 import { extractApiMessage, formatDate, getValue, isGuid, isPositiveInteger } from "../lib/utils";
 
@@ -27,24 +26,26 @@ const ALERT_LOAD_OPTIONS = [
   { value: "readAll", label: "Mark all as read", actionLabel: "Mark all read" },
 ];
 
-export default function AlertsPage() {
-  const { token } = useAuth();
-  const [loadMode, setLoadMode] = usePersistentState("draft:alerts:loadMode", "list");
-  const [recipientId, setRecipientId] = usePersistentState("draft:alerts:recipientId", "");
+const AlertsPage = () => {
+  const { token } = useContext(AuthContext);
   const [alerts, setAlerts] = useState([]);
   const [unreadCount, setUnreadCount] = useState("");
   const [form, setForm, clearForm] = usePersistentState("draft:alerts:form", createInitial);
-  const [bulkRecipients, setBulkRecipients, clearBulkRecipients] = usePersistentState(
-    "draft:alerts:bulkRecipients",
-    ""
-  );
-  const { message, error, setNotice } = useNotice();
+  const [local, setLocal] = usePersistentState("draft:alerts:local", {
+    loadMode: "list",
+    recipientId: "",
+    bulkRecipients: "",
+  });
 
+  const handleChange = (e) => {
+    setForm((current) => ({ ...current, [e.target.name]: e.target.value }));
+  };
 
+  const handleLocalChange = (e) => {
+    setLocal((current) => ({ ...current, [e.target.name]: e.target.value }));
+  };
 
-  async function loadAlerts(path, successMessage) {
-    setNotice();
-
+  const loadAlerts = async (path, successMessage) => {
     try {
       const response = await axios.get(path, { headers: { Authorization: `Bearer ${token}` } });
       if (Array.isArray(response.data)) {
@@ -56,30 +57,29 @@ export default function AlertsPage() {
       }
 
       if (successMessage) {
-        setNotice(successMessage);
+        toast.success(successMessage);
       }
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleCreate(event) {
+  const handleCreate = async (event) => {
     event.preventDefault();
-    setNotice();
 
     try {
       if (!isPositiveInteger(form.recipientId)) {
-        setNotice("", "Enter a valid numeric recipient ID.");
+        toast.error("Enter a valid numeric recipient ID.");
         return;
       }
 
       if (form.relatedProductId && !isGuid(form.relatedProductId)) {
-        setNotice("", "Related product ID must be a valid GUID.");
+        toast.error("Related product ID must be a valid GUID.");
         return;
       }
 
       if (form.relatedWarehouseId && !isPositiveInteger(form.relatedWarehouseId)) {
-        setNotice("", "Related warehouse ID must be numeric.");
+        toast.error("Related warehouse ID must be numeric.");
         return;
       }
 
@@ -98,20 +98,18 @@ export default function AlertsPage() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setNotice("Alert created.");
+      toast.success("Alert created.");
       clearForm();
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function handleBulkCreate() {
-    setNotice();
-
+  const handleBulkCreate = async () => {
     try {
       const recipients = [
         ...new Set(
-          bulkRecipients
+          local.bulkRecipients
             .split(/[\s,]+/)
             .map((value) => Number(value.trim()))
             .filter((value) => Number.isInteger(value) && value > 0)
@@ -119,7 +117,7 @@ export default function AlertsPage() {
       ];
 
       if (!recipients.length) {
-        setNotice("", "Enter one or more recipient IDs separated by commas or spaces.");
+        toast.error("Enter one or more recipient IDs separated by commas or spaces.");
         return;
       }
 
@@ -138,54 +136,50 @@ export default function AlertsPage() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setNotice("Bulk alerts sent.");
-      clearBulkRecipients();
+      toast.success("Bulk alerts sent.");
+      setLocal((c) => ({ ...c, bulkRecipients: "" }));
       clearForm();
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function runAction(factory, successMessage) {
-    setNotice();
-
-    try {
-      await factory();
-      setNotice(successMessage);
-    } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
-    }
-  }
-
-  function handleLoadAlerts() {
-    if (!isPositiveInteger(recipientId)) {
-      setNotice("", "Enter a valid numeric recipient ID.");
+  const handleLoadAlerts = async () => {
+    if (!isPositiveInteger(local.recipientId)) {
+      toast.error("Enter a valid numeric recipient ID.");
       return;
     }
 
-    switch (loadMode) {
+    switch (local.loadMode) {
       case "list":
-        loadAlerts(API_ROUTES.alerts.byRecipient(recipientId), "Alerts loaded.");
+        loadAlerts(API_ROUTES.alerts.byRecipient(local.recipientId), "Alerts loaded.");
         return;
       case "unread":
-        loadAlerts(API_ROUTES.alerts.unread(recipientId), "Unread alert count loaded.");
+        loadAlerts(API_ROUTES.alerts.unread(local.recipientId), "Unread alert count loaded.");
         return;
       case "unacknowledged":
-        loadAlerts(API_ROUTES.alerts.unacknowledged(recipientId), "Unacknowledged alerts loaded.");
-        return;
-      case "readAll":
-        runAction(
-          () => axios.post(API_ROUTES.alerts.readAll(recipientId), null, { headers: { Authorization: `Bearer ${token}` } }),
-          "All recipient alerts marked as read."
+        loadAlerts(
+          API_ROUTES.alerts.unacknowledged(local.recipientId),
+          "Unacknowledged alerts loaded."
         );
         return;
+      case "readAll":
+        try {
+          await axios.post(API_ROUTES.alerts.readAll(local.recipientId), null, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          toast.success("All recipient alerts marked as read.");
+        } catch (submitError) {
+          toast.error(extractApiMessage(submitError));
+        }
+        return;
       default:
-        setNotice("", "Choose how you want to load alerts.");
+        toast.error("Choose how you want to load alerts.");
     }
-  }
+  };
 
   const selectedLoadOption =
-    ALERT_LOAD_OPTIONS.find((option) => option.value === loadMode) || ALERT_LOAD_OPTIONS[0];
+    ALERT_LOAD_OPTIONS.find((option) => option.value === local.loadMode) || ALERT_LOAD_OPTIONS[0];
 
   return (
     <div className="space-y-8">
@@ -195,15 +189,15 @@ export default function AlertsPage() {
         description="Create, send, and manage alerts through the alert microservice."
       />
 
-      <FloatingNotice error={error} message={message} />
-
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <section className="panel-soft p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">Load Recipient Alerts</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">
+            Load Recipient Alerts
+          </p>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <div>
               <label className="mb-2 block text-sm font-medium text-ink-700">Load mode</label>
-              <select value={loadMode} onChange={(event) => setLoadMode(event.target.value)}>
+              <select name="loadMode" value={local.loadMode} onChange={handleLocalChange}>
                 {ALERT_LOAD_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
@@ -214,9 +208,10 @@ export default function AlertsPage() {
             <div>
               <label className="mb-2 block text-sm font-medium text-ink-700">Recipient ID</label>
               <input
+                name="recipientId"
                 placeholder="Numeric recipient ID"
-                value={recipientId}
-                onChange={(event) => setRecipientId(event.target.value)}
+                value={local.recipientId}
+                onChange={handleLocalChange}
               />
             </div>
           </div>
@@ -240,18 +235,16 @@ export default function AlertsPage() {
             <div>
               <label className="mb-2 block text-sm font-medium text-ink-700">Recipient ID</label>
               <input
+                name="recipientId"
                 required
                 type="number"
                 value={form.recipientId}
-                onChange={(event) => setForm((current) => ({ ...current, recipientId: event.target.value }))}
+                onChange={handleChange}
               />
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium text-ink-700">Type</label>
-              <select
-                value={form.type}
-                onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}
-              >
+              <select name="type" value={form.type} onChange={handleChange}>
                 <option value="LOW_STOCK">LOW_STOCK</option>
                 <option value="OVERSTOCK">OVERSTOCK</option>
                 <option value="PO_PENDING">PO_PENDING</option>
@@ -260,10 +253,7 @@ export default function AlertsPage() {
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium text-ink-700">Severity</label>
-              <select
-                value={form.severity}
-                onChange={(event) => setForm((current) => ({ ...current, severity: event.target.value }))}
-              >
+              <select name="severity" value={form.severity} onChange={handleChange}>
                 <option value="INFO">INFO</option>
                 <option value="WARNING">WARNING</option>
                 <option value="CRITICAL">CRITICAL</option>
@@ -271,59 +261,58 @@ export default function AlertsPage() {
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium text-ink-700">Channel</label>
-              <select
-                value={form.channel}
-                onChange={(event) => setForm((current) => ({ ...current, channel: event.target.value }))}
-              >
+              <select name="channel" value={form.channel} onChange={handleChange}>
                 <option value="IN_APP">IN_APP</option>
                 <option value="EMAIL">EMAIL</option>
               </select>
             </div>
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-ink-700">Title</label>
-              <input
-                required
-                value={form.title}
-                onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-              />
+              <input name="title" required value={form.title} onChange={handleChange} />
             </div>
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-ink-700">Message</label>
               <textarea
+                name="message"
                 rows="3"
                 required
                 value={form.message}
-                onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))}
+                onChange={handleChange}
               />
             </div>
             <div>
-              <label className="mb-2 block text-sm font-medium text-ink-700">Related product ID</label>
+              <label className="mb-2 block text-sm font-medium text-ink-700">
+                Related product ID
+              </label>
               <input
+                name="relatedProductId"
                 placeholder="Optional GUID"
                 value={form.relatedProductId}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, relatedProductId: event.target.value }))
-                }
+                onChange={handleChange}
               />
             </div>
             <div>
-              <label className="mb-2 block text-sm font-medium text-ink-700">Related warehouse ID</label>
+              <label className="mb-2 block text-sm font-medium text-ink-700">
+                Related warehouse ID
+              </label>
               <input
+                name="relatedWarehouseId"
                 placeholder="Optional numeric ID"
                 type="number"
                 value={form.relatedWarehouseId}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, relatedWarehouseId: event.target.value }))
-                }
+                onChange={handleChange}
               />
             </div>
             <div className="md:col-span-2">
-              <label className="mb-2 block text-sm font-medium text-ink-700">Bulk recipient IDs</label>
+              <label className="mb-2 block text-sm font-medium text-ink-700">
+                Bulk recipient IDs
+              </label>
               <textarea
+                name="bulkRecipients"
                 placeholder="Separate recipient IDs with commas or spaces"
                 rows="2"
-                value={bulkRecipients}
-                onChange={(event) => setBulkRecipients(event.target.value)}
+                value={local.bulkRecipients}
+                onChange={handleLocalChange}
               />
             </div>
           </div>
@@ -361,43 +350,66 @@ export default function AlertsPage() {
             },
             { label: "Type", render: (row) => getValue(row, "type", "Type") },
             { label: "Severity", render: (row) => getValue(row, "severity", "Severity") },
-            { label: "Created", render: (row) => formatDate(getValue(row, "createdAt", "CreatedAt")) },
+            {
+              label: "Created",
+              render: (row) => formatDate(getValue(row, "createdAt", "CreatedAt")),
+            },
             {
               label: "Actions",
               render: (row) => (
                 <div className="flex flex-wrap gap-2">
                   <button
                     className="secondary-btn px-4 py-2"
-                    onClick={() =>
-                      runAction(
-                        () => api.post(API_ROUTES.alerts.markRead(getValue(row, "alertId", "AlertId")), null, token),
-                        "Alert marked as read."
-                      )
-                    }
+                    onClick={async () => {
+                      try {
+                        await axios.post(
+                          API_ROUTES.alerts.markRead(getValue(row, "alertId", "AlertId")),
+                          null,
+                          { headers: { Authorization: `Bearer ${token}` } }
+                        );
+                        toast.success("Alert marked as read.");
+                        handleLoadAlerts();
+                      } catch (submitError) {
+                        toast.error(extractApiMessage(submitError));
+                      }
+                    }}
                     type="button"
                   >
                     Read
                   </button>
                   <button
                     className="secondary-btn px-4 py-2"
-                    onClick={() =>
-                      runAction(
-                        () => api.post(API_ROUTES.alerts.acknowledge(getValue(row, "alertId", "AlertId")), null, token),
-                        "Alert acknowledged."
-                      )
-                    }
+                    onClick={async () => {
+                      try {
+                        await axios.post(
+                          API_ROUTES.alerts.acknowledge(getValue(row, "alertId", "AlertId")),
+                          null,
+                          { headers: { Authorization: `Bearer ${token}` } }
+                        );
+                        toast.success("Alert acknowledged.");
+                        handleLoadAlerts();
+                      } catch (submitError) {
+                        toast.error(extractApiMessage(submitError));
+                      }
+                    }}
                     type="button"
                   >
                     Acknowledge
                   </button>
                   <button
                     className="danger-btn px-4 py-2"
-                    onClick={() =>
-                      runAction(
-                        () => axios.delete(API_ROUTES.alerts.remove(getValue(row, "alertId", "AlertId")), { headers: { Authorization: `Bearer ${token}` } }),
-                        "Alert deleted."
-                      )
-                    }
+                    onClick={async () => {
+                      try {
+                        await axios.delete(
+                          API_ROUTES.alerts.remove(getValue(row, "alertId", "AlertId")),
+                          { headers: { Authorization: `Bearer ${token}` } }
+                        );
+                        toast.success("Alert deleted.");
+                        handleLoadAlerts();
+                      } catch (submitError) {
+                        toast.error(extractApiMessage(submitError));
+                      }
+                    }}
                     type="button"
                   >
                     Delete
@@ -411,4 +423,6 @@ export default function AlertsPage() {
       </section>
     </div>
   );
-}
+};
+
+export default AlertsPage;

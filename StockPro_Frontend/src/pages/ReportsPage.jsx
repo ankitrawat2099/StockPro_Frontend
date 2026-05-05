@@ -1,10 +1,9 @@
-import { useState } from "react";
+import { useState, useContext } from "react";
 import axios from "axios";
 import DataTable from "../components/DataTable";
-import FloatingNotice from "../components/FloatingNotice";
+import { toast } from "react-toastify";
 import PageHeader from "../components/PageHeader";
-import { useAuth } from "../context/AuthContext";
-import { useNotice } from "../hooks/useNotice";
+import { AuthContext } from "../context/AuthContext";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { API_ROUTES } from "../lib/constants";
 import { downloadBlob, extractApiMessage, formatCurrency, isPositiveInteger, titleCase } from "../lib/utils";
@@ -20,15 +19,15 @@ const REPORT_ACTIONS = [
   { value: "poSummary", label: "PO summary", resultLabel: "PO summary", roles: ["ADMIN", "MANAGER"] },
 ];
 
-function renderObjectRows(source) {
+const renderObjectRows = (source) => {
   return Object.entries(source || {}).map(([key, value]) => ({
     key,
     label: titleCase(key),
     value: typeof value === "number" ? formatCurrency(value) : String(value),
   }));
-}
+};
 
-function formatReportValue(value, label = "") {
+const formatReportValue = (value, label = "") => {
   if (typeof value === "number") {
     return /value|amount|cost|summary/i.test(label) ? formatCurrency(value) : String(value);
   }
@@ -38,9 +37,9 @@ function formatReportValue(value, label = "") {
   }
 
   return String(value ?? "-");
-}
+};
 
-async function extractReportDownloadError(error) {
+const extractReportDownloadError = async (error) => {
   const data = error?.response?.data;
 
   if (data instanceof Blob) {
@@ -59,25 +58,29 @@ async function extractReportDownloadError(error) {
   }
 
   return extractApiMessage(error);
-}
+};
 
-export default function ReportsPage() {
-  const { user, token } = useAuth();
+const ReportsPage = () => {
+  const { user, token } = useContext(AuthContext);
   const [rows, setRows] = useState([]);
   const [single, setSingle] = useState([]);
   const [context, setContext] = useState("Run a report to view analytics.");
-  const [activeReport, setActiveReport] = usePersistentState("draft:reports:activeReport", "totalValue");
+  const [activeReport, setActiveReport] = usePersistentState(
+    "draft:reports:activeReport",
+    "totalValue"
+  );
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [filters, setFilters] = usePersistentState("draft:reports:filters", {
     warehouseId: "",
     start: "",
     end: "",
   });
-  const { message, error, setNotice } = useNotice();
 
-  async function runReport(label, factory) {
-    setNotice();
+  const handleChange = (e) => {
+    setFilters((current) => ({ ...current, [e.target.name]: e.target.value }));
+  };
 
+  const runReport = async (label, factory) => {
     try {
       const response = await factory();
       const payload = response.data;
@@ -88,11 +91,16 @@ export default function ReportsPage() {
           setRows(payload);
           setSingle([]);
         } else {
-          setRows(payload.map((item, index) => ({ item: index + 1, value: formatReportValue(item, label) })));
+          setRows(
+            payload.map((item, index) => ({
+              item: index + 1,
+              value: formatReportValue(item, label),
+            }))
+          );
           setSingle([]);
         }
 
-        setNotice(`${label} loaded.`);
+        toast.success(`${label} loaded.`);
 
         return;
       }
@@ -103,26 +111,24 @@ export default function ReportsPage() {
           ? renderObjectRows(payload)
           : [{ label, value: formatReportValue(payload, label) }]
       );
-      setNotice(`${label} loaded.`);
+      toast.success(`${label} loaded.`);
     } catch (submitError) {
-      setNotice("", extractApiMessage(submitError));
+      toast.error(extractApiMessage(submitError));
     }
-  }
+  };
 
-  async function generateReportFile() {
-    setNotice();
-
+  const generateReportFile = async () => {
     try {
-      const response = await axios.get(API_ROUTES.reports.generate, { 
+      const response = await axios.get(API_ROUTES.reports.generate, {
         headers: { Authorization: `Bearer ${token}` },
-        responseType: "blob" 
+        responseType: "blob",
       });
       downloadBlob(response.data, "stockpro-report.txt", "application/octet-stream");
-      setNotice("Inventory report downloaded.");
+      toast.success("Inventory report downloaded.");
     } catch (submitError) {
-      setNotice("", await extractReportDownloadError(submitError));
+      toast.error(await extractReportDownloadError(submitError));
     }
-  }
+  };
 
   const dynamicColumns =
     rows.length > 0
@@ -139,37 +145,53 @@ export default function ReportsPage() {
         ];
   const isManager = user?.role === "MANAGER";
   const availableReports = REPORT_ACTIONS.filter((action) => action.roles.includes(user?.role));
-  const selectedReport = availableReports.find((action) => action.value === activeReport) || availableReports[0];
+  const selectedReport =
+    availableReports.find((action) => action.value === activeReport) || availableReports[0];
 
-  async function handleRunReport() {
+  const handleRunReport = async () => {
     if (!selectedReport) {
-      setNotice("", "Choose a report first.");
+      toast.error("Choose a report first.");
       return;
     }
 
-    if (selectedReport.requires?.includes("warehouseId") && !isPositiveInteger(filters.warehouseId)) {
-      setNotice("", "Enter a valid numeric warehouse ID before running this report.");
+    if (
+      selectedReport.requires?.includes("warehouseId") &&
+      !isPositiveInteger(filters.warehouseId)
+    ) {
+      toast.error("Enter a valid numeric warehouse ID before running this report.");
       return;
     }
 
     if (selectedReport.requires?.includes("dateRange") && (!filters.start || !filters.end)) {
-      setNotice("", "Select both start and end dates before running the turnover report.");
+      toast.error("Select both start and end dates before running the turnover report.");
       return;
     }
 
     const factories = {
-      totalValue: () => axios.get(API_ROUTES.reports.totalValue, { headers: { Authorization: `Bearer ${token}` } }),
-      byWarehouse: () => axios.get(API_ROUTES.reports.byWarehouse(filters.warehouseId), { headers: { Authorization: `Bearer ${token}` } }),
-      turnover: () => axios.get(API_ROUTES.reports.turnover(filters.start, filters.end), { headers: { Authorization: `Bearer ${token}` } }),
-      lowStock: () => axios.get(API_ROUTES.reports.lowStock, { headers: { Authorization: `Bearer ${token}` } }),
-      topMoving: () => axios.get(API_ROUTES.reports.topMoving, { headers: { Authorization: `Bearer ${token}` } }),
-      slowMoving: () => axios.get(API_ROUTES.reports.slowMoving, { headers: { Authorization: `Bearer ${token}` } }),
-      deadStock: () => axios.get(API_ROUTES.reports.deadStock, { headers: { Authorization: `Bearer ${token}` } }),
-      poSummary: () => axios.get(API_ROUTES.reports.poSummary, { headers: { Authorization: `Bearer ${token}` } }),
+      totalValue: () =>
+        axios.get(API_ROUTES.reports.totalValue, { headers: { Authorization: `Bearer ${token}` } }),
+      byWarehouse: () =>
+        axios.get(API_ROUTES.reports.byWarehouse(filters.warehouseId), {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      turnover: () =>
+        axios.get(API_ROUTES.reports.turnover(filters.start, filters.end), {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      lowStock: () =>
+        axios.get(API_ROUTES.reports.lowStock, { headers: { Authorization: `Bearer ${token}` } }),
+      topMoving: () =>
+        axios.get(API_ROUTES.reports.topMoving, { headers: { Authorization: `Bearer ${token}` } }),
+      slowMoving: () =>
+        axios.get(API_ROUTES.reports.slowMoving, { headers: { Authorization: `Bearer ${token}` } }),
+      deadStock: () =>
+        axios.get(API_ROUTES.reports.deadStock, { headers: { Authorization: `Bearer ${token}` } }),
+      poSummary: () =>
+        axios.get(API_ROUTES.reports.poSummary, { headers: { Authorization: `Bearer ${token}` } }),
     };
 
     await runReport(selectedReport.resultLabel, factories[selectedReport.value]);
-  }
+  };
 
   return (
     <div className="space-y-8">
@@ -178,8 +200,6 @@ export default function ReportsPage() {
         title="Reports and KPI exports"
         description="Managers and admins can query the reporting microservice and download the generated inventory report."
       />
-
-      <FloatingNotice error={error} message={message} />
 
       <section className="panel-soft p-6">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">Choose Report</p>
@@ -199,25 +219,18 @@ export default function ReportsPage() {
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           {selectedReport?.requires?.includes("warehouseId") ? (
             <input
+              name="warehouseId"
               placeholder="Warehouse ID"
               type="number"
               value={filters.warehouseId}
-              onChange={(event) => setFilters((current) => ({ ...current, warehouseId: event.target.value }))}
+              onChange={handleChange}
             />
           ) : null}
 
           {selectedReport?.requires?.includes("dateRange") ? (
             <>
-              <input
-                type="date"
-                value={filters.start}
-                onChange={(event) => setFilters((current) => ({ ...current, start: event.target.value }))}
-              />
-              <input
-                type="date"
-                value={filters.end}
-                onChange={(event) => setFilters((current) => ({ ...current, end: event.target.value }))}
-              />
+              <input name="start" type="date" value={filters.start} onChange={handleChange} />
+              <input name="end" type="date" value={filters.end} onChange={handleChange} />
             </>
           ) : null}
         </div>
@@ -236,9 +249,15 @@ export default function ReportsPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coral">Current Result</p>
         <h3 className="mt-3 text-2xl">{context}</h3>
         <div className="mt-5">
-          <DataTable columns={dynamicColumns} rows={rows.length ? rows : single} emptyMessage="No report data loaded yet." />
+          <DataTable
+            columns={dynamicColumns}
+            rows={rows.length ? rows : single}
+            emptyMessage="No report data loaded yet."
+          />
         </div>
       </section>
     </div>
   );
-}
+};
+
+export default ReportsPage;

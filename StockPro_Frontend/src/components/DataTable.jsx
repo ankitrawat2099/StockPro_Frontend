@@ -1,4 +1,4 @@
-export default function DataTable({ columns, rows, emptyMessage = "No records found." }) {
+const DataTable = ({ columns, rows, emptyMessage = "No records found." }) => {
   return (
     <div className="overflow-hidden rounded-3xl border border-ink-100">
       <div className="overflow-x-auto">
@@ -38,4 +38,6 @@ export default function DataTable({ columns, rows, emptyMessage = "No records fo
       </div>
     </div>
   );
-}
+};
+
+export default DataTable;

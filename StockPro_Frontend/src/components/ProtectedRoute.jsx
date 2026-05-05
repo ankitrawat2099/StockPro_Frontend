@@ -1,8 +1,9 @@
+import { useContext } from "react";
 import { Navigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { AuthContext } from "../context/AuthContext";
 
-export function ProtectedRoute({ children, roles }) {
-  const { isAuthenticated, booting, user } = useAuth();
+export const ProtectedRoute = ({ children, roles }) => {
+  const { isAuthenticated, booting, user } = useContext(AuthContext);
 
   if (booting) {
     return (
@@ -25,10 +26,10 @@ export function ProtectedRoute({ children, roles }) {
   }
 
   return children;
-}
+};
 
-export function PublicRoute({ children }) {
-  const { isAuthenticated, booting } = useAuth();
+export const PublicRoute = ({ children }) => {
+  const { isAuthenticated, booting } = useContext(AuthContext);
 
   if (booting) {
     return null;
@@ -39,4 +40,4 @@ export function PublicRoute({ children }) {
   }
 
   return children;
-}
+};

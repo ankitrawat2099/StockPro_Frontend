@@ -12,7 +12,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <BrowserRouter>
       <AuthProvider>
         <App />
-        <ToastContainer closeOnClick draggable newestOnTop pauseOnHover theme="light" />
+        <ToastContainer position="bottom-right" closeOnClick draggable newestOnTop pauseOnHover theme="light" />
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>

@@ -5,32 +5,34 @@ import { API_ROUTES, PUBLIC_SIGNUP_ROLES} from "../lib/constants";
 import { clearStoredToken, getStoredToken, setStoredToken } from "../lib/storage";
 import { extractApiMessage } from "../lib/utils";
 
-const AuthContext = createContext(null);
+export const AuthContext = createContext(null);
 
-function sanitizePublicRole(role) {
+const sanitizePublicRole = (role) => {
   return PUBLIC_SIGNUP_ROLES.includes(role) ? role : "STAFF";
-}
+};
 
-export function AuthProvider({ children }) {
+export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(getStoredToken());
   const [user, setUser] = useState(null);
   const [booting, setBooting] = useState(true);
 
-  async function fetchProfile(activeToken = token) {
-    const response = await axios.get(API_ROUTES.auth.profile, { headers: { Authorization: `Bearer ${activeToken}` } });
+  const fetchProfile = async (activeToken) => {
+    const response = await axios.get(API_ROUTES.auth.profile, {
+      headers: { Authorization: `Bearer ${activeToken ? activeToken : token}` },
+    });
 
     const profile = response.data;
     setUser(profile);
     return profile;
-  }
+  };
 
-  function clearSession() {
+  const clearSession = () => {
     clearStoredToken();
     setToken("");
     setUser(null);
-  }
+  };
 
-  async function login(credentials) {
+  const login = async (credentials) => {
     try {
       const response = await axios.post(API_ROUTES.auth.login, credentials);
       const nextToken = response.data?.token || response.data?.Token;
@@ -43,47 +45,55 @@ export function AuthProvider({ children }) {
     } catch (error) {
       throw new Error(extractApiMessage(error));
     }
-  }
+  };
 
-  async function register(payload) {
+  const register = async (payload) => {
     try {
       const request = {
         ...payload,
         role: sanitizePublicRole(payload.role),
       };
 
-      return await axios.post(API_ROUTES.auth.register, request, { headers: { Authorization: `Bearer ${token}` } });
+      return await axios.post(API_ROUTES.auth.register, request, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
     } catch (error) {
       throw new Error(extractApiMessage(error));
     }
-  }
+  };
 
-  async function createUser(payload) {
+  const createUser = async (payload) => {
     try {
-      return await axios.post(API_ROUTES.auth.register, payload, { headers: { Authorization: `Bearer ${token}` } });
+      return await axios.post(API_ROUTES.auth.register, payload, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
     } catch (error) {
       throw new Error(extractApiMessage(error));
     }
-  }
+  };
 
-  async function updateProfile(payload) {
+  const updateProfile = async (payload) => {
     try {
-      await axios.put(API_ROUTES.auth.profile, payload, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.put(API_ROUTES.auth.profile, payload, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       return await fetchProfile();
     } catch (error) {
       throw new Error(extractApiMessage(error));
     }
-  }
+  };
 
-  async function changePassword(payload) {
+  const changePassword = async (payload) => {
     try {
-      await axios.put(API_ROUTES.auth.password, payload, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.put(API_ROUTES.auth.password, payload, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
     } catch (error) {
       throw new Error(extractApiMessage(error));
     }
-  }
+  };
 
-  async function refreshSession() {
+  const refreshSession = async () => {
     try {
       if (!token) {
         throw new Error("No active session to refresh.");
@@ -101,9 +111,9 @@ export function AuthProvider({ children }) {
     } catch (error) {
       throw new Error(extractApiMessage(error));
     }
-  }
+  };
 
-  async function logout() {
+  const logout = async () => {
     try {
       if (token) {
         await axios.post(API_ROUTES.auth.logout, JSON.stringify(token), {
@@ -116,23 +126,23 @@ export function AuthProvider({ children }) {
       clearSession();
       clearPersistentStore();
     }
-  }
+  };
 
   useEffect(() => {
-    async function bootstrap() {
+    const bootstrap = async () => {
       if (!token) {
         setBooting(false);
         return;
       }
 
       try {
-        await fetchProfile(token);
+        await fetchProfile();
       } catch {
         clearSession();
       } finally {
         setBooting(false);
       }
-    }
+    };
 
     bootstrap();
   }, []);
@@ -158,13 +168,4 @@ export function AuthProvider({ children }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-
-  return context;
-}
+};
